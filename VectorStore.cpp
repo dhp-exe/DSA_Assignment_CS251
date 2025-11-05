@@ -79,139 +79,298 @@ AVLTree<K, T>::~AVLTree() {
 // ROTATIONS
 template <class K, class T>
 typename AVLTree<K, T>::AVLNode* AVLTree<K, T>:: rotateRight(AVLNode*& node) {
-    AVLNode* newRoot = node->pLeft;
-    node->pLeft = newRoot->pRight;
-    newRoot->pRight = node;
-    return newRoot;
+    AVLNode* pivot = node->pLeft;
+    node->pLeft = pivot->pRight;
+    pivot->pRight = node;
+    return pivot;
 }
 template <class K, class T>
 typename AVLTree<K, T>::AVLNode* AVLTree<K, T>:: rotateLeft(AVLNode*& node) {
-    AVLNode* newRoot = node->pRight;
-    node->pRight = newRoot->pLeft;
-    newRoot->pLeft = node;
-    return newRoot;
+    AVLNode* pivot = node->pRight;
+    node->pRight = pivot->pLeft;
+    pivot->pLeft = node;
+    return pivot;
 }
 
 // INSERTION
 template <class K, class T>
-int AVLTree<K, T>::getBalance(AVLNode* node) {
-    if (!node) return 0;
-    return getHeightHelper(node->pLeft) - getHeightHelper(node->pRight);
+typename AVLTree<K, T>::AVLNode* AVLTree<K, T>::balanceLeft(AVLNode*& node) {
+    AVLNode* leftChild = node->pLeft;
+    if (leftChild->balance == LH) { // Case 1: Left-Left (LL)
+        // Single Right Rotation
+        node = rotateRight(node);
+        node->balance = EH;
+        node->pRight->balance = EH;
+    } 
+    else { // Case 2: Left-Right (LR)
+        AVLNode* grandChild = leftChild->pRight;
+        node->pLeft = rotateLeft(node->pLeft);
+        node = rotateRight(node);
+
+        // Update balances based on grandchild's original balance
+        if (grandChild->balance == LH) {
+            node->balance = EH;
+            node->pLeft->balance = EH;
+            node->pRight->balance = RH;
+        } 
+        else if (grandChild->balance == RH) {
+            node->balance = EH;
+            node->pLeft->balance = LH;
+            node->pRight->balance = EH;
+        } 
+        else { // grandChild was EH
+            node->balance = EH;
+            node->pLeft->balance = EH;
+            node->pRight->balance = EH;
+        }
+    }
+    return node;
 }
 
 template <class K, class T>
-typename AVLTree<K, T>::AVLNode* AVLTree<K, T>:: insertNode( AVLNode* node, const K& key, const T& value){
-    if(node == nullptr) {
-        return new AVLNode(key, value);
-    }
-    if(key < node->key) {
-        node->pLeft = insertNode(node->pLeft, key, value);
+typename AVLTree<K, T>::AVLNode* AVLTree<K, T>::balanceRight(AVLNode*& node) {
+    AVLNode* rightChild = node->pRight;
+    if (rightChild->balance == RH) { // Case 3: Right-Right (RR)
+        // Single Left Rotation
+        node = rotateLeft(node);
+        node->balance = EH;
+        node->pLeft->balance = EH;
     } 
-    else if(key > node->key) {
-        node->pRight = insertNode(node->pRight, key, value);
-    } 
-    else { 
-        return node; // Duplicate keys
-    }
-
-    int balanceFactor = getBalance(node);
-
-    // left left
-    if(balanceFactor > 1 && key < node->pLeft->key) {
-        return rotateRight(node);
-    }
-    // right right
-    if(balanceFactor < -1 && key > node->pRight->key) {
-        return rotateLeft(node);
-    }
-    // left right
-    if(balanceFactor > 1 && key > node->pLeft->key) {
-        node->pLeft = rotateLeft(node->pLeft);
-        return rotateRight(node);
-    }
-    // right left
-    if(balanceFactor < -1 && key < node->pRight->key) {
+    else { // Case 4: Right-Left (RL)
+        AVLNode* grandChild = rightChild->pLeft;
         node->pRight = rotateRight(node->pRight);
-        return rotateLeft(node);
+        node = rotateLeft(node);
+        
+        // Update balances based on grandchild's original balance
+        if (grandChild->balance == LH) {
+            node->balance = EH;
+            node->pLeft->balance = RH;
+            node->pRight->balance = EH;
+        } 
+        else if (grandChild->balance == RH) {
+            node->balance = EH;
+            node->pLeft->balance = EH;
+            node->pRight->balance = LH;
+        } 
+        else { // grandChild was EH
+            node->balance = EH;
+            node->pLeft->balance = EH;
+            node->pRight->balance = EH;
+        }
+    }
+    return node;
+}
+template <class K, class T>
+typename AVLTree<K, T>::AVLNode* AVLTree<K, T>::insertHelper(
+    AVLNode*& node, const K& key, const T& value, bool& taller) 
+{
+    if (node == nullptr) {
+        node = new AVLNode(key, value); // Constructor sets balance = EH
+        taller = true;
+        return node;
+    }
+
+    if (key < node->key) {
+        node->pLeft = insertHelper(node->pLeft, key, value, taller);
+
+        if (taller) { 
+            // Update balance factor
+            if (node->balance == LH) {
+                node = balanceLeft(node);
+                taller = false; 
+            } else if (node->balance == EH) { 
+                node->balance = LH;
+                taller = true; 
+            } else { 
+                node->balance = EH;
+                taller = false; // Height did not increase
+            }
+        }
+    } 
+    else if (key > node->key) {
+        node->pRight = insertHelper(node->pRight, key, value, taller);
+
+        if (taller) { 
+            // Update balance factor
+            if (node->balance == LH) {
+                node->balance = EH;
+                taller = false;
+            } else if (node->balance == EH) { 
+                node->balance = RH;
+                taller = true; 
+            } else { 
+                node = balanceRight(node); 
+                taller = false; // Height did not increase
+            }
+        }
+    } 
+    else {
+        // Duplicate key found
+        taller = false;
     }
 
     return node;
-
 }
-
-template<class K, class T>
-void AVLTree<K, T>:: insert(const K& key, const T& value) {
-    root = insertNode(root, key, value);
+template <class K, class T>
+void AVLTree<K, T>::insert(const K& key, const T& value) {
+    bool taller = false;
+    this->root = insertHelper(this->root, key, value, taller);
 }
 
 //  REMOVAL
 template <class K, class T>
-typename AVLTree<K, T>::AVLNode* AVLTree<K, T>::findMin(AVLNode* node) {
+typename AVLTree<K, T>::AVLNode* AVLTree<K, T>::findMin(AVLNode* node) const {
     if (!node || !node->pLeft) return node;
     return findMin(node->pLeft);
 }
 template <class K, class T>
-typename AVLTree<K, T>::AVLNode* AVLTree<K, T>::removeNode(AVLNode* node, const K& key) {
-    if (node == nullptr) return nullptr;
-
-    if (key < node->key)
-        node->pLeft = removeNode(node->pLeft, key);
-    else if (key > node->key)
-        node->pRight = removeNode(node->pRight, key);
-    else {
-        // node found
-            // case 1: node with 1 or 0 child
-        if (!node->pLeft || !node->pRight) {
-            AVLNode* temp = node->pLeft ? node->pLeft : node->pRight;
-            if (!temp) {
-                delete node;
-                return nullptr;
+typename AVLTree<K, T>::AVLNode* AVLTree<K, T>::balanceLeft_Remove(AVLNode*& node, bool& shorter) 
+{
+    if (node->balance == LH) { 
+        node->balance = EH;
+       
+    } 
+    else if (node->balance == EH) {  // Height balanced
+        node->balance = RH;
+        shorter = false; 
+    } 
+    else { // node->balance == RH (Right Heavy)
+        AVLNode* rightChild = node->pRight;
+        if (rightChild->balance == LH) { // RL Case
+            AVLNode* grandChild = rightChild->pLeft;
+            node->pRight = rotateRight(node->pRight);
+            node = rotateLeft(node);
+            // Update balances
+            if (grandChild->balance == EH) {
+                node->balance = EH; node->pLeft->balance = EH; node->pRight->balance = EH;
             } 
-            else {
-                AVLNode* del = node;
-                node = temp;
-                delete del;
+            else if (grandChild->balance == LH) {
+                node->balance = EH; node->pLeft->balance = RH; node->pRight->balance = EH;
+            } 
+            else { // grandChild->balance == RH
+                node->balance = EH; node->pLeft->balance = EH; node->pRight->balance = LH;
             }
+            shorter = true;
         } 
-        else {
-            // case 2: node with two children
-            AVLNode* minNode = findMin(node->pRight);
-            node->key = minNode->key;
-            node->data = minNode->data;
-            node->pRight = removeNode(node->pRight, minNode->key);
+        else { // RR Case (or child is EH)
+            node = rotateLeft(node);
+            if (rightChild->balance == EH) {
+                node->balance = LH; node->pLeft->balance = RH; shorter = false;
+            } 
+            else { // rightChild->balance == RH
+                node->balance = EH; node->pLeft->balance = EH; shorter = true;
+            }
         }
     }
-
-    // rebalance the tree
-    if (!node) return node;
-
-    int balance = getBalance(node);
-
-    // Left heavy
-    if (balance > 1 && getBalance(node->pLeft) >= 0){
-        return rotateRight(node);
+    return node;
+}
+template <class K, class T>
+typename AVLTree<K, T>::AVLNode* AVLTree<K, T>::balanceRight_Remove(
+    AVLNode*& node, bool& shorter) 
+{
+    if (node->balance == RH) {
+        node->balance = EH;
+    } 
+    else if (node->balance == EH) {
+        node->balance = LH;
+        shorter = false; // Stop
+    } 
+    else { 
+        // Unbalanced
+        AVLNode* leftChild = node->pLeft;
+        if (leftChild->balance == RH) { // LR Case
+            AVLNode* grandChild = leftChild->pRight;
+            node->pLeft = rotateLeft(node->pLeft);
+            node = rotateRight(node);
+            // Update balances
+            if (grandChild->balance == EH) {
+                node->balance = EH; node->pLeft->balance = EH; node->pRight->balance = EH;
+            } 
+            else if (grandChild->balance == LH) {
+                node->balance = EH; node->pLeft->balance = EH; node->pRight->balance = RH;
+            } 
+            else { // grandChild->balance == RH
+                node->balance = EH; node->pLeft->balance = LH; node->pRight->balance = EH;
+            }
+            shorter = true;
+        } 
+        else { // LL Case (or child is EH)
+            node = rotateRight(node);
+            if (leftChild->balance == EH) {
+                node->balance = RH; node->pRight->balance = LH; shorter = false;
+            } 
+            else { // leftChild->balance == LH
+                node->balance = EH; node->pRight->balance = EH; shorter = true;
+            }
+        }
     }
-    // Right heavy
-    if (balance < -1 && getBalance(node->pRight) <= 0){
-        return rotateLeft(node);
-    }
-    // Left Right
-    if (balance > 1 && getBalance(node->pLeft) < 0) {
-        node->pLeft = rotateLeft(node->pLeft);
-        return rotateRight(node);
-    }
-    // Right Left
-    if (balance < -1 && getBalance(node->pRight) > 0) {
-        node->pRight = rotateRight(node->pRight);
-        return rotateLeft(node);
+    return node;
+}
+template <class K, class T>
+typename AVLTree<K, T>::AVLNode* AVLTree<K, T>::removeHelper(
+    AVLNode*& node, const K& key, bool& shorter, bool& success) 
+{
+    if (node == nullptr) {
+        // Key not found
+        shorter = false;
+        success = false;
+        return nullptr;
     }
 
+    if (key < node->key) {
+        // 1. Delete from LEFT subtree
+        node->pLeft = removeHelper(node->pLeft, key, shorter, success);
+        if (shorter) {
+            // Left subtree shrunk, rebalance this node
+            node = balanceRight_Remove(node, shorter); 
+        }
+    } 
+    else if (key > node->key) {
+        // 2. Delete from RIGHT subtree
+        node->pRight = removeHelper(node->pRight, key, shorter, success);
+        if (shorter) {
+            // Right subtree shrunk, rebalance this node
+            node = balanceLeft_Remove(node, shorter);
+        }
+    } 
+    else {
+        // 3. Key found. This is the node to delete.
+        success = true;
+        if (node->pLeft == nullptr) {
+            // Case 1: 0 or 1 child (right)
+            AVLNode* temp = node->pRight;
+            delete node;
+            node = temp;
+            shorter = true; // This subtree is now shorter
+        } else if (node->pRight == nullptr) {
+            // Case 2: 1 child (left)
+            AVLNode* temp = node->pLeft;
+            delete node;
+            node = temp;
+            shorter = true;
+        } else {
+            // Case 3: 2 children
+            AVLNode* successor = findMin(node->pRight);
+            
+            // Copy successor's data to this node
+            node->key = successor->key;
+            node->data = successor->data;
+            
+            node->pRight = removeHelper(node->pRight, successor->key, shorter, success);
+            
+            if (shorter) {
+                node = balanceLeft_Remove(node, shorter);
+            }
+        }
+    }
     return node;
 }
 
 template <class K, class T>
-void AVLTree<K, T>:: remove(const K& key) {
-    root = removeNode(root, key);
+void AVLTree<K, T>::remove(const K& key) {
+    bool shorter = false;
+    bool success = false;
+    this->root = removeHelper(this->root, key, shorter, success);
 }
 
 // CONTAINS
@@ -279,7 +438,6 @@ void AVLTree<K,T>::clearHelper( AVLNode* node) {
         delete node;
     }
 }
-
 template <class K, class T>
 void AVLTree<K, T>::clear() {
     clearHelper(root);
@@ -408,13 +566,430 @@ template <class K, class T>
 RedBlackTree<K, T>::RedBlackTree() {
     root = nullptr;
 }
-
 template <class K, class T>
 RedBlackTree<K, T>::~RedBlackTree() {
     clear();
 }
 
+// ROTATIONS
+template <class K, class T>
+void RedBlackTree<K, T>:: rotateLeft(RBTNode* node) {
+    RBTNode* pivot = node->right;
+    node->right = pivot->left;
 
+    if (pivot->left != nullptr) {
+        pivot->left->parent = node;
+    }
+    pivot->parent = node->parent;
+
+    if (node->parent == nullptr) {
+        root = pivot;
+    } 
+    else if (node == node->parent->left) {
+        node->parent->left = pivot;
+    } 
+    else {
+        node->parent->right = pivot;
+    }
+    pivot->left = node;
+    node->parent = pivot;
+}
+template <class K, class T>
+void RedBlackTree<K,T>:: rotateRight(RBTNode* node){
+    RBTNode* pivot = node->left;
+    node->left = pivot->right;
+
+    if(pivot->right != nullptr){
+        pivot->right->parent = node;
+    }
+    pivot->parent = node->parent;
+
+    if(!node->parent){
+        root = pivot;
+    }
+    else if( node == node->parent->left){
+        node->parent->left = pivot;
+    }
+    else{
+        node->parent->right = pivot;
+    }
+    pivot->right = node;
+    node->parent = pivot;
+}
+
+// LOWERBOUND & UPPERBOUND NODE
+template <class K, class T>
+typename RedBlackTree<K, T>::RBTNode* RedBlackTree<K, T>:: lowerBoundNode(const K& key) const {
+    RBTNode* cur = root;
+    RBTNode* res = nullptr;
+
+    while (cur) {
+        if (cur->key >= key) {
+            res = cur;
+            cur = cur->left;
+        } 
+        else {
+            cur = cur->right;
+        }
+    }
+    return res;
+}
+template <class K, class T>
+typename RedBlackTree<K, T>::RBTNode* RedBlackTree<K, T>:: upperBoundNode(const K& key) const {
+    RBTNode* cur = root;
+    RBTNode* res = nullptr;
+
+    while (cur) {
+        if (cur->key > key) {
+            res = cur;
+            cur = cur->left;
+        } 
+        else {
+            cur = cur->right;
+        }
+    }
+    return res;
+}
+// EMPTY
+template <class K, class T>
+bool RedBlackTree<K, T>:: empty() const {
+    return root == nullptr;
+}
+
+// SIZE
+template <class K, class T>
+int RedBlackTree<K, T>::getSize(RBTNode* node) const{
+    if (!node){
+        return 0;
+    }
+    return 1 + getSize(node->left) + getSize(node->right);
+}
+template <class K, class T>
+int RedBlackTree<K, T>:: size() const {
+    if (root == nullptr) {
+        return 0;
+    }
+    return getSize(root);
+}
+
+// CLEAR
+template <class K, class T>
+void RedBlackTree<K,T>:: clearHelper(RBTNode* node){
+    if(node){
+        clearHelper(node->left);
+        clearHelper(node->right);
+        delete node;
+    }
+}
+template <class K, class T>
+void RedBlackTree<K,T>:: clear(){
+    clearHelper(root);
+    root = nullptr;
+}
+
+// INSERT
+template <class K, class T>
+void RedBlackTree<K, T>::fixInsert(RBTNode* node) {
+    while (node != root && node->parent->color == Color::RED) {
+        RBTNode* parent = node->parent;
+        RBTNode* grandparent = parent->parent;
+
+        // CASE 1: Parent is left child of grandparent
+        if (parent == grandparent->left) {
+            RBTNode* uncle = grandparent->right;
+
+            // Case 1A: Uncle is red → recolor and move up
+            if (uncle && uncle->color == Color::RED) {
+                parent->recolorToBlack();
+                uncle->recolorToBlack();
+                grandparent->recolorToRed();
+                node = grandparent;
+            }
+            else { // uncle is black
+                // Case 1B: node is right child → rotate left
+                if (node == parent->right) {
+                    node = parent;
+                    rotateLeft(node);
+                }
+                // Case 1C: node is left child → rotate right
+                parent->recolorToBlack();
+                grandparent->recolorToRed();
+                rotateRight(grandparent);
+            }
+        }
+        // CASE 2: Parent is right child of grandparent (mirror)
+        else {
+            RBTNode* uncle = grandparent->left;
+
+            // Case 2A: Uncle is red
+            if (uncle && uncle->color == Color::RED) {
+                parent->recolorToBlack();
+                uncle->recolorToBlack();
+                grandparent->recolorToRed();
+                node = grandparent;
+            }
+            else { // uncle is black 
+                // Case 2B: node is left child → rotate right
+                if (node == parent->left) {
+                    node = parent;
+                    rotateRight(node);
+                }
+                // Case 2C: node is right child → rotate left
+                parent->recolorToBlack();
+                grandparent->recolorToRed();
+                rotateLeft(grandparent);
+            }
+        }
+    }
+
+    // Root must always be black
+    root->recolorToBlack();
+}
+
+template <class K, class T>
+void RedBlackTree<K, T>:: insert(const K& key, const T& value) {
+    RBTNode* newNode = new RBTNode(key, value); //red node
+    if(root == nullptr){
+        newNode->recolorToBlack();
+        root = newNode;
+        return;
+    }
+    else{
+        RBTNode* parent = nullptr;
+        RBTNode* current = root;
+        while (current) {
+            parent = current;
+            if (key < current->key) {
+                current = current->left;
+            } 
+            else if (key > current->key) {
+                current = current->right;
+            } 
+            else {
+                delete newNode; // Duplicate keys 
+                return;
+            }
+        }
+        newNode->parent = parent;
+        if (key < parent->key) {
+            parent->left = newNode;
+        }
+        else {
+            parent->right = newNode;
+        }
+    }
+    fixInsert(newNode);
+}
+
+// FIND
+template <class K, class T>
+typename RedBlackTree<K, T>::RBTNode* RedBlackTree<K, T>:: find(const K& key) const {
+    RBTNode* cur = root;
+    while (cur) {
+        if (key < cur->key) {
+            cur = cur->left;
+        } 
+        else if (key > cur->key) {
+            cur = cur->right;
+        }
+        else {
+            return cur; // Key found
+        }
+    }
+    return nullptr; // Key not found
+}
+
+// REMOVE
+template <class K, class T>
+typename RedBlackTree<K, T>::RBTNode*
+RedBlackTree<K, T>::findMax(RBTNode* node) const {
+    while (node->right)
+        node = node->right;
+    return node;
+}
+
+template <class K, class T>
+void RedBlackTree<K, T>::transplant(RBTNode* u, RBTNode* v) {
+    if (u->parent == nullptr)
+        root = v;
+    else if (u == u->parent->left) // u is left child
+        u->parent->left = v;
+    else                           // u is right child
+        u->parent->right = v;
+    if (v != nullptr)
+        v->parent = u->parent;
+}
+
+template <class K, class T>
+void RedBlackTree<K, T>::fixRemove(RBTNode* x, RBTNode* xParent) {
+
+    // x is the replacing node
+    while (x != root && (x == nullptr || x->color == Color::BLACK)) {
+
+        // Case 1: x is left child
+        if (x == (xParent ? xParent->left : nullptr)) {
+            RBTNode* w = xParent->right; // w is sibling of x
+
+            // Case 1a: sibling is red
+            if (w && w->color == Color::RED) {
+                w->recolorToBlack();
+                xParent->recolorToRed();
+                rotateLeft(xParent);
+                w = xParent->right;
+            }
+
+            // Case 1b: sibling and its children are black
+            if (w == nullptr || ((w->left == nullptr || w->left->color == Color::BLACK) &&
+                 (w->right == nullptr || w->right->color == Color::BLACK))) {
+                if (w) w->recolorToRed();
+                x = xParent;
+                xParent = x->parent;
+            } 
+            else { 
+                // Case 1c: sibling is black and  left: red, right: black
+                if (w && (w->right == nullptr || w->right->color == Color::BLACK)) {
+                    if (w->left) w->left->recolorToBlack();
+                    w->recolorToRed();
+                    rotateRight(w);
+                    w = xParent->right;
+                }
+
+                // Case 1d: sibling's right is red
+                if (w) w->color = xParent->color;
+                xParent->recolorToBlack();
+                if (w && w->right) w->right->recolorToBlack();
+                rotateLeft(xParent);
+                x = root;
+                break;
+            }
+        } 
+        // Case 2: x is right child (mirror)
+        else {
+            RBTNode* w = xParent->left;
+            // Case 2a: sibling is red
+            if (w && w->color == Color::RED) {
+                w->recolorToBlack();
+                xParent->recolorToRed();
+                rotateRight(xParent);
+                w = xParent->left;
+            }
+            // Case 2b: both sibling and its children are black
+            if (w == nullptr ||
+                ((w->right == nullptr || w->right->color == Color::BLACK) &&
+                 (w->left == nullptr || w->left->color == Color::BLACK))) {
+                if (w) w->recolorToRed();
+                x = xParent;
+                xParent = x->parent;
+            }
+            
+            else {
+                // Case 2c: sibling is black and  left: black, right: red
+                if (w && (w->left == nullptr || w->left->color == Color::BLACK)) {
+                    if (w->right) w->right->recolorToBlack();
+                    w->recolorToRed();
+                    rotateLeft(w);
+                    w = xParent->left;
+                }
+                // Case 2d: sibling's left is red
+                if (w) w->color = xParent->color;
+                xParent->recolorToBlack();
+                if (w && w->left) w->left->recolorToBlack();
+                rotateRight(xParent);
+                x = root;
+                break;
+            }
+        }
+    }
+
+    if (x) x->recolorToBlack();
+    if (root) root->recolorToBlack();
+}
+template <class K, class T>
+void RedBlackTree<K, T>::remove(const K& key) {
+    RBTNode* node = find(key);
+    if (!node) return; // key not found
+
+    RBTNode* y = node;
+    RBTNode* x = nullptr;
+    RBTNode* xParent = nullptr;
+    Color originalColor = y->color;
+
+    // Case 1: node has 0 or 1 child
+    if (node->left == nullptr) {
+        x = node->right;
+        xParent = node->parent;
+        transplant(node, node->right);
+    } 
+    else if (node->right == nullptr) {
+        x = node->left;
+        xParent = node->parent;
+        transplant(node, node->left);
+    } 
+    // Case 2: node has 2 children
+    else {
+        // Use predecessor (largest in left subtree)
+        y = findMax(node->left);
+        originalColor = y->color;
+        x = y->left;
+
+        if (y->parent == node) {
+            xParent = y;
+            if (x) x->parent = y;
+        } 
+        else {
+            xParent = y->parent;
+            transplant(y, y->left);
+            y->left = node->left;
+            if (y->left) y->left->parent = y;
+        }
+
+        transplant(node, y);
+        y->right = node->right;
+        if (y->right) y->right->parent = y;
+        y->color = node->color;
+    }
+
+    delete node;
+
+    // If deleted node was black, fix double-black violation
+    if (originalColor == Color::BLACK)
+        fixRemove(x, xParent);
+}
+
+// CONTAINS
+template <class K, class T>
+bool RedBlackTree<K, T>::contains(const K& key) const{
+    return find(key) != nullptr;
+}
+
+// LOWERBOUND & UPPERBOUND
+template <class K, class T>
+typename RedBlackTree<K, T>::RBTNode* RedBlackTree<K, T>::lowerBound(const K& key, bool& found) const {
+    
+    RBTNode* result = this->lowerBoundNode(key);
+
+    if (result == nullptr) {
+        found = false;
+    } 
+    else {
+        found = true;
+    }
+
+    return result;
+}
+template <class K, class T>
+typename RedBlackTree<K, T>::RBTNode* RedBlackTree<K, T>::upperBound(const K& key, bool& found) const {
+    
+    RBTNode* result = this->upperBoundNode(key);
+
+    if (result == nullptr) {
+        found = false;
+    } else {
+        found = true;
+    }
+
+    return result;
+}
 
 
 

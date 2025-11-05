@@ -47,11 +47,17 @@ class AVLTree {
         int getHeightHelper(AVLNode* node) const;
         int getSizeHelper(AVLNode* node) const;
 
-        AVLNode* insertNode(AVLNode* node, const K& key, const T& value);
-        int getBalance(AVLNode* node);
+        // Helpers for O(log n) insert
+        AVLNode* insertHelper(AVLNode*& node, const K& key, const T& value, bool& taller);
+        AVLNode* balanceLeft(AVLNode*& node);
+        AVLNode* balanceRight(AVLNode*& node);
 
-        AVLNode* findMin(AVLNode* node);
-        AVLNode* removeNode(AVLNode* node, const K& key);
+        // Helpers for O(log n) remove
+        AVLNode* removeHelper(AVLNode*& node, const K& key, bool& shorter, bool& success);
+        AVLNode* balanceLeft_Remove(AVLNode*& node, bool& shorter);
+        AVLNode* balanceRight_Remove(AVLNode*& node, bool& shorter);
+
+        AVLNode* findMin(AVLNode* node) const;
 
         bool containsHelper(AVLNode* node, const K& key) const;
         void inorderHelper(AVLNode* node, void (*action)(const T&)) const;
@@ -70,7 +76,7 @@ class AVLTree {
         void clear();
 
         void printTreeStructure() const;
-
+        
         void inorderTraversal(void (*action)(const T&)) const;
 
         AVLNode* getRoot() const { return root; }
@@ -113,6 +119,15 @@ protected:
 
     RBTNode* lowerBoundNode(const K& key) const;
     RBTNode* upperBoundNode(const K& key) const;
+    int getSize(RBTNode* node) const;
+    void clearHelper(RBTNode* node);
+
+    void fixInsert(RBTNode* node);
+
+    void transplant(RBTNode* u, RBTNode* v);
+    void fixRemove(RBTNode* x, RBTNode* parent);
+    RBTNode* findMax(RBTNode* node) const;
+
 
 public:
     RedBlackTree();

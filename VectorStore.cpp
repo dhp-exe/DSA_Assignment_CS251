@@ -224,7 +224,7 @@ typename AVLTree<K, T>::AVLNode* AVLTree<K, T>::findMin(AVLNode* node) const {
     return findMin(node->pLeft);
 }
 template <class K, class T>
-typename AVLTree<K, T>::AVLNode* AVLTree<K, T>::balanceLeft_Remove(AVLNode*& node, bool& shorter) 
+typename AVLTree<K, T>::AVLNode* AVLTree<K, T>::balanceRight_Remove(AVLNode*& node, bool& shorter) 
 {
     if (node->balance == LH) { 
         node->balance = EH;
@@ -265,7 +265,7 @@ typename AVLTree<K, T>::AVLNode* AVLTree<K, T>::balanceLeft_Remove(AVLNode*& nod
     return node;
 }
 template <class K, class T>
-typename AVLTree<K, T>::AVLNode* AVLTree<K, T>::balanceRight_Remove(
+typename AVLTree<K, T>::AVLNode* AVLTree<K, T>::balanceLeft_Remove(
     AVLNode*& node, bool& shorter) 
 {
     if (node->balance == RH) {

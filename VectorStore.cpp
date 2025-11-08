@@ -1711,6 +1711,9 @@ int* VectorStore:: topKNearest(const vector<float>& query, int k, string metric)
 }
 
 // OVERLOADED FUNCTIONS
+bool VectorStore::empty() const{
+    return this->count == 0;
+}
 double VectorStore::l1Distance(const vector<float>& v1, const vector<float>& v2) const {
     if(v1.size() != v2.size() || v1.empty()) {
         return 0.0;
@@ -1734,7 +1737,28 @@ double VectorStore::l2Distance(const vector<float>& v1, const vector<float>& v2)
     }
     return sqrt(sum);
 }
+double VectorStore::cosineSimilarity(const vector<float>& v1, const vector<float>& v2) const {
+    if (v1.size() != v2.size() || v1.empty()) {
+        return 0.0; // Or handle error
+    }
 
+    double dotProduct = 0.0;
+    double normA = 0.0;
+    double normB = 0.0;
+
+    for (size_t i = 0; i < v1.size(); ++i) {
+        dotProduct += v1[i] * v2[i];
+        normA += v1[i] * v1[i];
+        normB += v2[i] * v2[i];
+    }
+
+    // Handle potential division by zero 
+    if (normA == 0.0 || normB == 0.0) {
+        return 0.0; 
+    }
+
+    return dotProduct / (sqrt(normA) * sqrt(normB));
+}
 // RANGE QUERY
 int* VectorStore::rangeQueryFromRoot(double minDist, double maxDist) const {
     
@@ -2024,8 +2048,20 @@ VectorRecord* VectorStore::findVectorNearestToDistance(double targetDistance) co
     return bestRecord;
 }
 
+// PRIVATE HELPER IMPLEMENTATIONS
 
-
+double VectorStore::distanceByMetric(const vector<float>& a, const vector<float>& b, const string& metric) const 
+{
+    if (metric == "euclidean") {
+        return l2Distance(a, b);
+    } else if (metric == "manhattan") {
+        return l1Distance(a, b);
+    } else if (metric == "cosine") {
+        return cosineSimilarity(a, b);
+    }
+    
+    throw invalid_metric();
+}
 
 
 // Explicit template instantiation for the type used by VectorStore

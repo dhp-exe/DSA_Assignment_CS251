@@ -1012,6 +1012,1022 @@ std::ostream& operator<<(std::ostream& os, const VectorRecord& record) {
 
 //TODO: Implement all VectorStore methods here
 
+//CONSTRUCTOR
+VectorStore::VectorStore( int dimension, 
+    vector<float>* (*embeddingFunction)(const string&),
+    const vector<float>& referenceVector){
+    
+    this->dimension = dimension;
+    this->embeddingFunction = embeddingFunction;
+    this->count = 0;
+    this->averageDistance = 0.0;
+
+    // Allocate the trees (empty)
+    this->vectorStore = new AVLTree<double, VectorRecord>();        //avl
+    this->normIndex   = new RedBlackTree<double, VectorRecord>();   //rbt
+
+    // Copy reference vector
+    this->referenceVector = new vector<float>(referenceVector);
+
+    // No root vector yet
+    this->rootVector = nullptr;     //root vector of avl
+}
+// DESRUCTOR
+VectorStore::~VectorStore()
+{
+    // Clear all AVL and Red-Black tree contents
+    if (vectorStore) {
+        vectorStore->clear();
+        delete vectorStore;
+        vectorStore = nullptr;
+    }
+
+    if (normIndex) {
+        normIndex->clear();
+        delete normIndex;
+        normIndex = nullptr;
+    }
+
+    // Delete rootVector and referenceVector
+    if (rootVector) {
+        delete rootVector;
+        rootVector = nullptr;
+    }
+
+    if (referenceVector) {
+        delete referenceVector;
+        referenceVector = nullptr;
+    }
+}
+
+//SIZE
+int VectorStore::size() {
+    return this->count;
+}
+
+//EMPTY
+bool VectorStore::empty(){
+    return this->count == 0;
+}
+
+//CLEAR
+void VectorStore::clear(){
+    if(vectorStore) vectorStore->clear(); // clear avl
+    if(normIndex)   normIndex->clear(); // clear RBT
+    this->count = 0;
+    this->averageDistance = 0.0;
+    
+    if(rootVector){
+        delete rootVector;
+        rootVector = nullptr;
+    }
+}
+// PREPROCESSING AND DATA MANAGEMENT
+
+vector<float>* VectorStore::preprocessing(string rawText) {
+    // Call embeddingFunction to map the text to a vector
+    vector<float>* vec = embeddingFunction(rawText);
+    if (!vec) return nullptr;
+
+    // if size > dimension -> truncate trailing
+    if (vec->size() > static_cast<size_t>(dimension)) {
+        vec->resize(dimension);
+    }
+
+    // if size < dimension -> pad with 0's
+    else if (vec->size() < static_cast<size_t>(dimension)) {
+        vec->insert(vec->end(), dimension - vec->size(), 0.0f);
+    }
+
+    // Return the normalized vector
+    return vec;
+}
+
+void VectorStore::addText(string rawText) {
+    
+    // use preprocessing to convert text into a vector.
+    vector<float>* newVec = this->preprocessing(rawText);
+    if (newVec == nullptr) {
+        return; 
+    }
+
+    // Compute distance from the reference vector.
+    // for the AVL Tree
+    double distFromRef = l2Distance(*newVec, *this->referenceVector);
+
+    // Update the average distance.
+    double totalDistance = (this->averageDistance * this->count) + distFromRef;
+    int old_count = this->count;
+    this->count++; 
+    this->averageDistance = totalDistance / this->count;
+
+    // Compute the "Euclidean norm" of the vector.
+    // for the Red-Black Tree
+    double vecNorm = 0.0;
+    for (float val : *newVec) {
+        vecNorm += val * val;
+    }
+    vecNorm = sqrt(vecNorm);
+
+    // newID = current max id + 1
+    int maxId = -1;
+    if (old_count > 0) {
+        // use AVL to traverse
+
+        queue<AVLTree<double, VectorRecord>::AVLNode*> q;
+        q.push(this->vectorStore->root); 
+
+        while(!q.empty()) {
+            AVLTree<double, VectorRecord>::AVLNode* node = q.front();
+            q.pop();
+            
+            if(node == nullptr) continue;
+
+            if (node->data.id > maxId) {
+                maxId = node->data.id;
+            }
+            
+            if(node->pLeft) q.push(node->pLeft);
+            if(node->pRight) q.push(node->pRight);
+        }
+    }
+    int newId = maxId + 1;
+
+    // Create the new record
+    VectorRecord newRecord(newId, rawText, newVec, distFromRef);
+    newRecord.norm = vecNorm;
+
+    // If the store is empty, sets this vector as the root vector.
+    if (old_count == 0) {
+        this->rootVector = new VectorRecord(newRecord);
+    } 
+    // If the store is not empty:
+    else {
+        // Check if new vector's distance is closer to the average
+        double rootDistToAvg = fabs(this->rootVector->distanceFromReference - this->averageDistance);
+        double newDistToAvg = fabs(newRecord.distanceFromReference - this->averageDistance);
+
+        if (newDistToAvg < rootDistToAvg) {
+            // This new vector becomes the rootVector
+            delete this->rootVector;
+            this->rootVector = new VectorRecord(newRecord); 
+        }
+    }
+    // insert vector into AVL 
+    this->vectorStore->insert(distFromRef, newRecord);
+    
+    // insert vector into RBT
+    this->normIndex->insert(newRecord.norm, newRecord);
+}
+
+// helper for finding vector at given index with INORDER Traversal
+static VectorRecord* getNthRecordInorder(AVLTree<double, VectorRecord>::AVLNode* node, 
+    int& counter, int targetIndex) {
+
+    if (node == nullptr) {
+        return nullptr;
+    }
+
+    //Traverse Left Subtree
+    VectorRecord* result = getNthRecordInorder(node->pLeft, counter, targetIndex);
+    if (result != nullptr) {
+        return result; 
+    }
+
+    //Visit Current Node
+    if (counter == targetIndex) {
+        return &(node->data); 
+    }
+    counter++; // Increment counter *after* visiting
+
+    //Traverse Right Subtree
+    return getNthRecordInorder(node->pRight, counter, targetIndex);
+}
+
+VectorRecord* VectorStore::getVector(int index) {
+    if (index < 0 || index >= this->count) {
+        throw out_of_range("Index is invalid!");
+    }
+    
+    int counter = 0;
+    // getRoot() is a public method of AVLTree
+    return getNthRecordInorder(this->vectorStore->getRoot(), counter, index);
+}
+
+string VectorStore::getRawText(int index) {
+    if (index < 0 || index >= this->count) {
+        throw out_of_range("Index is invalid!");
+    }
+    
+    int counter = 0;
+    VectorRecord* record = getNthRecordInorder(this->vectorStore->getRoot(), counter, index);
+    
+    return record->rawText;
+}
+
+int VectorStore::getId(int index) {
+    if (index < 0 || index >= this->count) {
+        throw out_of_range("Index is invalid!");
+    }
+    
+    int counter = 0;
+    VectorRecord* record = getNthRecordInorder(this->vectorStore->getRoot(), counter, index);
+    
+    return record->id;
+}
+
+bool VectorStore::removeAt(int index) {
+    if (index < 0 || index >= this->count) {
+        throw out_of_range("Index is invalid!");
+    }
+
+    int counter = 0;
+    VectorRecord* recordPtr = getNthRecordInorder(this->vectorStore->getRoot(), counter, index);
+
+    VectorRecord recordToRemove = *recordPtr;
+    
+    double avlKey = recordToRemove.distanceFromReference;
+    double rbtKey = recordToRemove.norm;
+    int removedId = recordToRemove.id;
+    bool wasRoot = (this->rootVector != nullptr && removedId == this->rootVector->id);
+
+    // Free the vector's memory
+    delete recordToRemove.vector;
+
+    // Remove from both trees
+    this->vectorStore->remove(avlKey);
+    this->normIndex->remove(rbtKey);
+
+    // Update average distance
+    double oldTotalDistance = this->averageDistance * this->count;
+    double newTotalDistance = oldTotalDistance - recordToRemove.distanceFromReference;
+    
+    this->count--; // Decrement count
+    
+    if (this->count == 0) {
+        this->averageDistance = 0.0;
+    } 
+    else {
+        this->averageDistance = newTotalDistance / this->count;
+    }
+
+    // Handle root vector replacement
+    if (this->count == 0) { //store is empty
+        delete this->rootVector;
+        this->rootVector = nullptr;
+    } 
+    else if (wasRoot) {
+        // find newRoot
+        
+        queue<AVLTree<double, VectorRecord>::AVLNode*> q;
+        q.push(this->vectorStore->getRoot());
+
+        VectorRecord* newRoot = nullptr;
+        double minDiff = -1.0; // Use -1.0 = not set
+
+        while (!q.empty()) {
+            AVLTree<double, VectorRecord>::AVLNode* node = q.front();
+            q.pop();
+            
+            if (node == nullptr) continue;
+
+            // Get pointer to the record *inside* the node
+            VectorRecord* currentRecord = &(node->data);
+            double diff = fabs(currentRecord->distanceFromReference - this->averageDistance);
+
+            if (newRoot == nullptr || diff < minDiff) {
+                minDiff = diff;
+                newRoot = currentRecord;
+            }
+
+            if (node->pLeft) q.push(node->pLeft);
+            if (node->pRight) q.push(node->pRight);
+        }
+        
+        // Delete the old rootVector
+        delete this->rootVector;
+        // Make a new copy of the new root
+        this->rootVector = new VectorRecord(*newRoot);
+    }
+
+    return true;
+}
+
+
+// REFERENCE VECTOR AND EMBEDDING FUNCTION MANAGEMENT
+void VectorStore::setReferenceVector(const vector<float>& newReference) {
+
+    delete this->referenceVector;
+    this->referenceVector = new vector<float>(newReference);
+
+    // If the store is empty -> done
+    if (this->count == 0) {
+        return;
+    }
+
+    // re-calculate all distances and rebuild the AVL tree.
+    vector<VectorRecord> allRecords;
+    allRecords.reserve(this->count); // Reserve space
+
+    // use AVL to traverse
+    queue<AVLTree<double, VectorRecord>::AVLNode*> q;
+    q.push(this->vectorStore->root);
+
+    while (!q.empty()) {
+        AVLTree<double, VectorRecord>::AVLNode* node = q.front();
+        q.pop();
+
+        if (node == nullptr) continue;
+        
+        // Store a *copy* of the record.
+        allRecords.push_back(node->data);
+
+        if (node->pLeft) q.push(node->pLeft);
+        if (node->pRight) q.push(node->pRight);
+    }
+
+    // clear both trees
+    this->vectorStore->clear();
+    this->normIndex->clear();
+
+    // Re-compute distances and update average
+    double totalDistance = 0.0;
+    for (VectorRecord& rec : allRecords) {
+        rec.distanceFromReference = l2Distance(*rec.vector, *this->referenceVector);
+        totalDistance += rec.distanceFromReference;
+    }
+
+    this->averageDistance = totalDistance / this->count;
+
+    // Find the new root vector
+    VectorRecord* newRoot = nullptr;
+    double minDiff = -1.0; // -1 = not set
+
+    for (VectorRecord& rec : allRecords) {
+        double diff = fabs(rec.distanceFromReference - this->averageDistance);
+        
+        if (newRoot == nullptr || diff < minDiff) {
+            minDiff = diff;
+            newRoot = &rec; // Point to the record in our vector
+        }
+    }
+
+    // Update new rootVector 
+    delete this->rootVector;
+    this->rootVector = new VectorRecord(*newRoot);
+
+    // Reconstruct the AVL tree (and RBT)
+    for (const VectorRecord& rec : allRecords) {
+        // Insert into AVL tree with new distance
+        this->vectorStore->insert(rec.distanceFromReference, rec);
+        
+        // Re-insert into RBT
+        this->normIndex->insert(rec.norm, rec);
+    }
+}
+
+vector<float>* VectorStore::getReferenceVector() const {
+    return this->referenceVector;
+}
+VectorRecord* VectorStore::getRootVector() const {
+    return this->rootVector;
+}
+double VectorStore::getAverageDistance() const {
+    return this->averageDistance;
+}
+void VectorStore::setEmbeddingFunction(vector<float>* (*newEmbeddingFunction)(const string&)) {
+    this->embeddingFunction = newEmbeddingFunction;
+}
+
+// TRAVERSAL AND ITERATION
+static void inorder_helper(AVLTree<double, VectorRecord>::AVLNode* node, void (*action)(vector<float>&, int, string&)){
+    if (node == nullptr) return;
+    // left -> action -> right
+    inorder_helper(node->pLeft, action);
+    action(*(node->data.vector), node->data.id, node->data.rawText);
+    inorder_helper(node->pRight, action);
+}
+
+void VectorStore::forEach(void (*action)(vector<float>&, int, string&)) {
+    
+    inorder_helper(this->vectorStore->getRoot(), action);
+}
+
+static void inorder_getid_helper(AVLTree<double, VectorRecord>::AVLNode* node, vector<int>& idVector){
+    if (node == nullptr) return;
+   
+    inorder_getid_helper(node->pLeft, idVector);
+    
+    idVector.push_back(node->data.id); // Add the ID
+    
+    inorder_getid_helper(node->pRight, idVector);
+}
+vector<int> VectorStore::getAllIdsSortedByDistance() const {
+    vector<int> ids;
+    if (this->count > 0) {
+        ids.reserve(this->count); // Optimize allocation
+        inorder_getid_helper(this->vectorStore->getRoot(), ids);
+    }
+    return ids;
+}
+
+static void inorder_getVector_helper(AVLTree<double, VectorRecord>::AVLNode* node, vector<VectorRecord*>& recordVector)
+{
+    if (node == nullptr) return;
+
+    inorder_getVector_helper(node->pLeft, recordVector);
+    
+    // Add a pointer to the VectorRecord data inside the AVL node
+    recordVector.push_back(&(node->data));
+    
+    inorder_getVector_helper(node->pRight, recordVector);
+}
+
+vector<VectorRecord*> VectorStore::getAllVectorsSortedByDistance() const {
+
+    vector<VectorRecord*> records;
+    if (this->count > 0) {
+        records.reserve(this->count); // Optimize allocation
+        
+        inorder_getVector_helper(this->vectorStore->getRoot(), records);
+    }
+    return records;
+}
+
+
+
+
+// DISTANCE METRICS
+double VectorStore::cosineSimilarity(const vector<float>& v1, const vector<float>& v2) {
+    if (v1.size() != v2.size() || v1.empty()) {
+        return 0.0; // Or handle error
+    }
+
+    double dotProduct = 0.0;
+    double normA = 0.0;
+    double normB = 0.0;
+
+    for (size_t i = 0; i < v1.size(); ++i) {
+        dotProduct += v1[i] * v2[i];
+        normA += v1[i] * v1[i];
+        normB += v2[i] * v2[i];
+    }
+
+    // Handle potential division by zero 
+    if (normA == 0.0 || normB == 0.0) {
+        return 0.0; 
+    }
+
+    return dotProduct / (sqrt(normA) * sqrt(normB));
+}
+// Manhattan Distance (L1)
+double VectorStore::l1Distance(const vector<float>& v1, const vector<float>& v2) {
+    if(v1.size() != v2.size() || v1.empty()) {
+        return 0.0; // Or handle error
+    }
+
+    double sum = 0.0;
+    for (size_t i = 0; i < v1.size(); ++i) {
+        sum += fabs(v1[i] - v2[i]);
+    }
+    return sum;
+}
+// Euclidean Distance (L2)
+double VectorStore::l2Distance(const vector<float>& v1, const vector<float>& v2) {
+    if(v1.size() != v2.size() || v1.empty()) {
+        return 0.0; // Or handle error
+    }
+    double sum = 0.0;
+    for (size_t i = 0; i < v1.size(); ++i) {
+        double diff = v1[i] - v2[i];
+        sum += diff * diff;
+    }
+    return sqrt(sum);
+}
+
+// ESTIMATING THRESHOLD D FROM k
+double VectorStore::estimateD_Linear(
+    const vector<float>& query, 
+    int k, 
+    double averageDistance, 
+    const vector<float>& reference, 
+    double c0_bias, 
+    double c1_slope) 
+{
+    // Formula: D = |dr - averageDistance| + c1_slope * averageDistance * k + c0_bias
+    double dr = l2Distance(query, reference);
+    double D = fabs(dr - averageDistance) + (c1_slope * averageDistance * k) + c0_bias;
+    return D;
+}
+ 
+// NEAREST NEIGHBOR SEARCH
+int VectorStore::findNearest(const vector<float>& query, string metric){
+    if(this->empty()){
+        return -1; // Store is empty
+    }
+    bool maximize;
+    double bestDistance;
+
+    if(metric == "cosine"){
+        maximize = true;
+        bestDistance = -2.0; // Cosine similarity ranges from -1 to 1
+    }
+    else if(metric == "euclidean" || metric == "manhattan"){
+        maximize = false;
+        bestDistance = 1.0e30; // A large number
+    }
+    else {
+        throw invalid_metric("Invalid metric");
+    }
+    
+    int bestId = -1;
+
+    // use AVL to traverse
+    queue<AVLTree<double, VectorRecord>::AVLNode*> q;
+    q.push(this->vectorStore->root);
+
+    while (!q.empty()) {
+        AVLTree<double, VectorRecord>::AVLNode* node = q.front();
+        q.pop();
+
+        if (node == nullptr) continue;
+
+        VectorRecord& currentRecord = node->data;
+        double currentDistance;
+
+        // Calculate the score based on the chosen metric
+        if (metric == "euclidean") {
+            currentDistance = l2Distance(query, *(currentRecord.vector));
+        } 
+        else if (metric == "manhattan") {
+            currentDistance = l1Distance(query, *(currentRecord.vector));
+        } 
+        else if(metric == "cosine"){ 
+            currentDistance = cosineSimilarity(query, *(currentRecord.vector));
+        }
+
+        // Update the best-scoring vector
+        if (maximize) {
+            // For cosine, we want the MAXIMUM score
+            if (currentDistance > bestDistance) {
+                bestDistance = currentDistance;
+                bestId = currentRecord.id;
+            }
+        } 
+        else {
+            // For distance, we want the MINIMUM score
+            if (currentDistance < bestDistance) {
+                bestDistance = currentDistance;
+                bestId = currentRecord.id;
+            }
+        }
+        
+        // Continue traversal
+        if (node->pLeft) q.push(node->pLeft);
+        if (node->pRight) q.push(node->pRight);
+    }
+    
+    return bestId;
+}
+
+
+// Helper function to collect candidates within [minNorm, maxNorm]
+static void collectCandidates(
+    RedBlackTree<double, VectorRecord>::RBTNode* node,
+    double minNorm, double maxNorm,
+    vector<VectorRecord*>& candidates)
+{
+    if (node == nullptr) {
+        return;
+    }
+    //check left
+    if (node->key > minNorm) {
+        collectCandidates(node->left, minNorm, maxNorm, candidates);
+    }
+    // if the current node is in range, add it.
+    if (node->key >= minNorm && node->key <= maxNorm) {
+        candidates.push_back(&(node->data));
+    }
+    //check right
+    if (node->key < maxNorm) {
+        collectCandidates(node->right, minNorm, maxNorm, candidates);
+    }
+}
+int* VectorStore:: topKNearest(const vector<float>& query, int k, string metric) {
+    if (k <= 0 || k > this->count) {
+        throw invalid_k_value();
+    }
+    
+    bool maximize; // true for cosine, false for distances
+
+    if (metric == "cosine") {
+        maximize = true;
+    } 
+    else if (metric == "euclidean" || metric == "manhattan") {
+        maximize = false;
+    } 
+    else {
+        throw invalid_metric();
+    }
+    // 1. Compute query norm 
+    double nq = 0.0;
+    for (float val : query) {
+        nq += val * val;
+    }
+    nq = sqrt(nq);
+
+    // 2. Estimate radius D 
+    double D = estimateD_Linear(query, k, this->averageDistance, *(this->referenceVector));
+
+    // 3. Filter using Red Black Tree
+    vector<VectorRecord*> candidates;
+    // Get the RBT root
+    RedBlackTree<double, VectorRecord>::RBTNode* rbtRoot = this->normIndex->root;
+    
+    collectCandidates(rbtRoot, nq - D, nq + D, candidates);
+
+    int m = candidates.size();
+    cout << "Value m: " << m << endl;
+
+    // 4. Compute distance and select top k
+    if (m == 0) {
+        return new int[0]; // no candidate -> return empty dynamic array
+    }
+
+    // cosine -> use a min-heap to keep the k LARGEST scores.
+    // distance -> use max-heap to keep the k SMALLEST distances.
+    
+    if (maximize) { // Cosine (use min-heap)
+        priority_queue<pair<double, int>, vector<pair<double, int>>, greater<pair<double, int>>> min_heap;
+
+        for (VectorRecord* rec : candidates) {
+            double score = cosineSimilarity(query, *(rec->vector));
+            
+            if (min_heap.size() < (size_t)k) {
+                min_heap.push({score, rec->id});
+            } else if (score > min_heap.top().first) {
+                min_heap.pop();
+                min_heap.push({score, rec->id});
+            }
+        }
+        int result_size = min_heap.size();
+        int* top_ids = new int[result_size];
+        // Pop from min-heap -> ascending order of score
+        for (int i = 0; i < result_size; i++) {
+            top_ids[i] = min_heap.top().second; // {score, id}
+            min_heap.pop();
+        }
+        return top_ids;
+    }
+    else{   // Euclidean or Manhattan (use max-heap)
+        priority_queue<pair<double, int>> max_heap; // {distance, id}
+        for(VectorRecord* rec: candidates){
+            double distance;
+
+            if(metric == "euclidean"){
+                distance = l2Distance(query, *(rec->vector));
+            }
+            else{ //manhattan
+                distance = l1Distance(query, *(rec->vector));
+            }
+
+            if(max_heap.size() < (size_t)k){
+                max_heap.push({distance, rec->id});
+            }
+            else if(distance < max_heap.top().first){
+                max_heap.pop();
+                max_heap.push({distance, rec->id});
+            }
+        }
+        int result_size = max_heap.size();
+        int* top_ids = new int[result_size];
+        // Pop from max-heap -> descending order of distance
+        for(int i = result_size - 1; i >= 0; i--){
+            top_ids[i] = max_heap.top().second; // <distance, id>
+            max_heap.pop();
+        }
+        return top_ids;
+    }
+}
+
+// OVERLOADED FUNCTIONS
+double VectorStore::l1Distance(const vector<float>& v1, const vector<float>& v2) const {
+    if(v1.size() != v2.size() || v1.empty()) {
+        return 0.0;
+    }
+
+    double sum = 0.0;
+    for (size_t i = 0; i < v1.size(); ++i) {
+        sum += fabs(v1[i] - v2[i]);
+    }
+    return sum;
+}
+
+double VectorStore::l2Distance(const vector<float>& v1, const vector<float>& v2) const {
+    if(v1.size() != v2.size() || v1.empty()) {
+        return 0.0;
+    }
+    double sum = 0.0;
+    for (size_t i = 0; i < v1.size(); ++i) {
+        double diff = v1[i] - v2[i];
+        sum += diff * diff;
+    }
+    return sqrt(sum);
+}
+
+// RANGE QUERY
+int* VectorStore::rangeQueryFromRoot(double minDist, double maxDist) const {
+    
+    vector<int> matchingIds;
+
+    // If store is empty or there's no root vector, return empty array
+    if (this->empty() || this->rootVector == nullptr) {
+        return new int[0];
+    }
+
+    // Get the root vector's coordinates
+    const vector<float>* rootCoords = this->rootVector->vector;
+
+    queue<AVLTree<double, VectorRecord>::AVLNode*> q;
+    q.push(this->vectorStore->getRoot());
+
+    while (!q.empty()) {
+        AVLTree<double, VectorRecord>::AVLNode* node = q.front();
+        q.pop();
+
+        if (node == nullptr) continue;
+
+        if (node->data.id != this->rootVector->id) {
+            // Calculate Euclidean distance from this node to the root vector
+            double dist = l2Distance(*(node->data.vector), *rootCoords);
+
+            // Check if it's in the range
+            if (dist >= minDist && dist <= maxDist) {
+                matchingIds.push_back(node->data.id);
+            }
+        } 
+        else {
+             // Check the root vector itself (distance is 0)
+            if (0.0 >= minDist && 0.0 <= maxDist) {
+                matchingIds.push_back(node->data.id);
+            }
+        }
+
+        // Continue traversal
+        if (node->pLeft) q.push(node->pLeft);
+        if (node->pRight) q.push(node->pRight);
+    }
+
+    // Convert the vector of IDs to a dynamic int array
+    int* idArray = new int[matchingIds.size()];
+    for (size_t i = 0; i < matchingIds.size(); ++i) {
+        idArray[i] = matchingIds[i];
+    }
+
+    return idArray;
+}
+int* VectorStore::rangeQuery(const vector<float>& query, double radius, string metric) const {
+    
+    bool maximize; // true for cosine (>= radius)
+    bool validMetric = true;
+
+    if (metric == "cosine") {
+        maximize = true;
+    } 
+    else if (metric == "euclidean" || metric == "manhattan") {
+        maximize = false;
+    } 
+    else {
+        validMetric = false;
+    }
+
+    if (!validMetric) {
+        throw invalid_metric("Invalid metric!");
+    }
+
+    vector<int> matchingIds;
+    // use AVL to traverse
+    queue<AVLTree<double, VectorRecord>::AVLNode*> q;
+    q.push(this->vectorStore->getRoot());
+
+    while (!q.empty()) {
+        AVLTree<double, VectorRecord>::AVLNode* node = q.front();
+        q.pop();
+
+        if (node == nullptr) continue;
+
+        VectorRecord& currentRecord = node->data;
+        double score;
+
+        // Calculate the score using the const-overloaded helpers
+        if (metric == "euclidean") {
+            score = l2Distance(query, *(currentRecord.vector));
+        } 
+        else if (metric == "manhattan") {
+            score = l1Distance(query, *(currentRecord.vector));
+        } 
+        else { // "cosine"
+            score = cosineSimilarity(query, *(currentRecord.vector));
+        }
+
+        // Check if the score is within the radius
+        bool inRange = false;
+        if (maximize) {
+            // For cosine, "within radius" means score is >= radius
+            if (score >= radius) {
+                inRange = true;
+            }
+        } 
+        else {
+            // For distance, "within radius" means distance is <= radius
+            if (score <= radius) {
+                inRange = true;
+            }
+        }
+
+        if (inRange) {
+            matchingIds.push_back(currentRecord.id);
+        }
+
+        // Continue traversal
+        if (node->pLeft) q.push(node->pLeft);
+        if (node->pRight) q.push(node->pRight);
+    }
+
+    // Convert the vector of IDs to a dynamic int array
+    int* idArray = new int[matchingIds.size()];
+    for (size_t i = 0; i < matchingIds.size(); ++i) {
+        idArray[i] = matchingIds[i];
+    }
+
+    return idArray;
+}
+
+int* VectorStore::boundingBoxQuery(const vector<float>& minBound, const vector<float>& maxBound) const {
+    
+    vector<int> matchingIds;
+
+    queue<AVLTree<double, VectorRecord>::AVLNode*> q;
+    q.push(this->vectorStore->getRoot());
+
+    while (!q.empty()) {
+        AVLTree<double, VectorRecord>::AVLNode* node = q.front();
+        q.pop();
+
+        if (node == nullptr) continue;
+
+        VectorRecord& currentRecord = node->data;
+        vector<float>* vec = currentRecord.vector;
+
+        bool isInside = true;
+        // Check every dimension
+        for (int i = 0; i < this->dimension; ++i) {
+            // Check if the vector's coordinate is outside the bounds
+            if ((*vec)[i] < minBound[i] || (*vec)[i] > maxBound[i]) {
+                isInside = false;
+                break;
+            }
+        }
+
+        if (isInside) {
+            matchingIds.push_back(currentRecord.id);
+        }
+
+        // Continue traversal
+        if (node->pLeft) q.push(node->pLeft);
+        if (node->pRight) q.push(node->pRight);
+    }
+
+    // Convert the vector of IDs to a dynamic int array
+    int* idArray = new int[matchingIds.size()];
+    for (size_t i = 0; i < matchingIds.size(); ++i) {
+        idArray[i] = matchingIds[i];
+    }
+
+    return idArray;
+}
+
+// ADVANCED UTILS METHODS
+double VectorStore::getMaxDistance() const {
+    if (this->empty()) {
+        return 0.0;
+    }
+    const vector<float>* rootCoords = this->rootVector->vector;
+    double maxDist = 0.0;
+
+    // use AVL to traverse
+    queue<AVLTree<double, VectorRecord>::AVLNode*> q;
+    q.push(this->vectorStore->root);
+
+    while (!q.empty()) {
+        AVLTree<double, VectorRecord>::AVLNode* node = q.front();
+        q.pop();
+        
+        if (node == nullptr) continue;
+
+        double dist = l2Distance(*(node->data.vector), *rootCoords);
+        if (dist > maxDist) {
+            maxDist = dist;
+        }
+
+        if (node->pLeft) q.push(node->pLeft);
+        if (node->pRight) q.push(node->pRight);
+    }
+
+    return maxDist;
+}
+
+double VectorStore::getMinDistance() const {
+    if (this->empty()) {
+        return 0.0;
+    }
+    const vector<float>* rootCoords = this->rootVector->vector;
+    double minDist = 0.0;
+
+    // use AVL to traverse
+    queue<AVLTree<double, VectorRecord>::AVLNode*> q;
+    q.push(this->vectorStore->root);
+
+    while (!q.empty()) {
+        AVLTree<double, VectorRecord>::AVLNode* node = q.front();
+        q.pop();
+        
+        if (node == nullptr) continue;
+
+        double dist = l2Distance(*(node->data.vector), *rootCoords);
+        if (minDist == 0.0 || dist < minDist) {
+            minDist = dist;
+        }
+
+        if (node->pLeft) q.push(node->pLeft);
+        if (node->pRight) q.push(node->pRight);
+    }
+
+    return minDist;
+}
+
+VectorRecord VectorStore::computeCentroid(const vector<VectorRecord*>& records) const {
+    int m = records.size();// m is number of vectors
+    if (m == 0) {
+        return VectorRecord(); // Return default-constructed record
+    }
+
+    int d = this->dimension; // d is dimensionality
+    vector<double> sumVector(d, 0.0); // Use double for precision
+
+    // Sum all vectors
+    for (VectorRecord* rec : records) {
+        for (int i = 0; i < d; i++) {
+            sumVector[i] += (*(rec->vector))[i];
+        }
+    }
+
+    // Create the new centroid vector
+    vector<float>* centroidVec = new vector<float>();
+    centroidVec->reserve(d);
+
+    // Average the sums
+    for (int i = 0; i < d; ++i) {
+        centroidVec->push_back(static_cast<float>(sumVector[i] / m));
+    }
+
+    // Return a new VectorRecord for the centroid
+    return VectorRecord(-1, "centroid", centroidVec, 0.0);
+}
+
+VectorRecord* VectorStore::findVectorNearestToDistance(double targetDistance) const {
+    if (this->empty()) {
+        return nullptr;
+    }
+
+    VectorRecord* bestRecord = nullptr;
+    double minDiff = -1.0; // -1 = not set
+
+    queue<AVLTree<double, VectorRecord>::AVLNode*> q;
+    q.push(this->vectorStore->getRoot());
+
+    while (!q.empty()) {
+        AVLTree<double, VectorRecord>::AVLNode* node = q.front();
+        q.pop();
+        if (node == nullptr) continue;
+
+        double currentDiff = fabs(node->data.distanceFromReference - targetDistance);
+
+        if (bestRecord == nullptr || currentDiff < minDiff) {
+            minDiff = currentDiff;
+            bestRecord = &(node->data);
+        }
+
+        if (node->pLeft) q.push(node->pLeft);
+        if (node->pRight) q.push(node->pRight);
+    }
+    return bestRecord;
+}
+
+
+
+
+
 // Explicit template instantiation for the type used by VectorStore
 template class AVLTree<double, VectorRecord>;
 template class AVLTree<double, double>;

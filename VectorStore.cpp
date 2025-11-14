@@ -2054,9 +2054,11 @@ double VectorStore::distanceByMetric(const vector<float>& a, const vector<float>
 {
     if (metric == "euclidean") {
         return l2Distance(a, b);
-    } else if (metric == "manhattan") {
+    } 
+    else if (metric == "manhattan") {
         return l1Distance(a, b);
-    } else if (metric == "cosine") {
+    } 
+    else if (metric == "cosine") {
         return cosineSimilarity(a, b);
     }
     

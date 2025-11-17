@@ -532,14 +532,14 @@ void testVectorStore() {
     delete[] range;
 
     // constVS.rangeQueryFromRoot
-    // Root is ID 1 or 2. Let's assume 2 ({1,1,1})
+    cout << "Current RootVector ID is: " << constVS.getRootVector()->id << endl;
     // Data: 'carrot' (ID 2, {1,1,1}), 'banana' (ID 1, {4,4,4}), 'new' (ID 3, {99,98,97})
-    // dist(root, carrot) = 0.0
-    // dist(root, banana) = sqrt(3^2+3^2+3^2) = 5.196
+    // dist(root, banana) = 0.0
+    // dist(root, carrot) = sqrt(3^2+3^2+3^2) = 5.196
     // dist(root, new) = ... large
     cout << "rangeQueryFromRoot(min=1.0, max=6.0): ";
     int* rangeRoot = constVS.rangeQueryFromRoot(1.0, 6.0);
-    printArray(rangeRoot, 1); // Expected: [1]
+    printArray(rangeRoot, 1); // Expected: [2]
     delete[] rangeRoot;
 
     // constVS.boundingBoxQuery
@@ -554,7 +554,7 @@ void testVectorStore() {
     // --- Test 13: Advanced Utils ---
     cout << "--- Test 13: Advanced Utils ---" << endl;
     cout << "getMaxDistance (from root): " << constVS.getMaxDistance() << endl; // Expected: > 0
-    cout << "getMinDistance (from ref): " << constVS.getMinDistance() << endl; // Expected: 0.0 (carrot)
+    cout << "getMinDistance (from ref): " << constVS.getMinDistance() << endl; // Expected: 0.0
     
     // computeCentroid
     // Data: 'carrot' (ID 2, {1,1,1}), 'banana' (ID 1, {4,4,4}), 'new' (ID 3, {99,98,97})

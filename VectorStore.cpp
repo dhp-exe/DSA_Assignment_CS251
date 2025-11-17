@@ -991,11 +991,6 @@ typename RedBlackTree<K, T>::RBTNode* RedBlackTree<K, T>::upperBound(const K& ke
     return result;
 }
 
-
-
-
-
-
 // =====================================
 // VectorRecord implementation
 // =====================================
@@ -1168,7 +1163,6 @@ void VectorStore::addText(string rawText) {
         double newDistToAvg = fabs(newRecord.distanceFromReference - this->averageDistance);
 
         if (newDistToAvg < rootDistToAvg) {
-            // This new vector becomes the rootVector
             delete this->rootVector;
             this->rootVector = new VectorRecord(newRecord); 
         }
@@ -1932,62 +1926,30 @@ int* VectorStore::boundingBoxQuery(const vector<float>& minBound, const vector<f
 }
 
 // ADVANCED UTILS METHODS
+static double getMaxHelper(AVLTree<double, VectorRecord>::AVLNode* node) {
+    if (!node) return 0.0;
+
+    while (node->pRight) {
+        node = node->pRight;
+    }
+    return node->key;
+}
+
 double VectorStore::getMaxDistance() const {
-    if (this->empty()) {
+    if (this->vectorStore->empty()) {
         return 0.0;
     }
-    const vector<float>* rootCoords = this->rootVector->vector;
-    double maxDist = 0.0;
-
-    // use AVL to traverse
-    queue<AVLTree<double, VectorRecord>::AVLNode*> q;
-    q.push(this->vectorStore->root);
-
-    while (!q.empty()) {
-        AVLTree<double, VectorRecord>::AVLNode* node = q.front();
-        q.pop();
-        
-        if (node == nullptr) continue;
-
-        double dist = l2Distance(*(node->data.vector), *rootCoords);
-        if (dist > maxDist) {
-            maxDist = dist;
-        }
-
-        if (node->pLeft) q.push(node->pLeft);
-        if (node->pRight) q.push(node->pRight);
-    }
-
-    return maxDist;
+    return getMaxHelper(this->vectorStore->getRoot());
 }
 
 double VectorStore::getMinDistance() const {
-    if (this->empty()) {
+    if (this->vectorStore->empty()) {
         return 0.0;
     }
-    const vector<float>* rootCoords = this->rootVector->vector;
-    double minDist = 0.0;
-
-    // use AVL to traverse
-    queue<AVLTree<double, VectorRecord>::AVLNode*> q;
-    q.push(this->vectorStore->root);
-
-    while (!q.empty()) {
-        AVLTree<double, VectorRecord>::AVLNode* node = q.front();
-        q.pop();
-        
-        if (node == nullptr) continue;
-
-        double dist = l2Distance(*(node->data.vector), *rootCoords);
-        if (minDist == 0.0 || dist < minDist) {
-            minDist = dist;
-        }
-
-        if (node->pLeft) q.push(node->pLeft);
-        if (node->pRight) q.push(node->pRight);
-    }
-
-    return minDist;
+    //already have findMin()
+    AVLTree<double, VectorRecord>::AVLNode* minNode = this->vectorStore->findMin(this->vectorStore->getRoot());
+    
+    return minNode->key;
 }
 
 VectorRecord VectorStore::computeCentroid(const vector<VectorRecord*>& records) const {

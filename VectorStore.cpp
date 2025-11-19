@@ -1679,8 +1679,8 @@ int* VectorStore:: topKNearest(const vector<float>& query, int k, string metric)
         }
         int result_size = min_heap.size();
         int* top_ids = new int[result_size];
-        // Pop from min-heap -> ascending order of score
-        for (int i = 0; i < result_size; i++) {
+        // Pop from min-heap -> descending order of score (closest first)
+        for (int i = result_size - 1; i >= 0; i--) {
             top_ids[i] = min_heap.top().second; // {score, id}
             min_heap.pop();
         }

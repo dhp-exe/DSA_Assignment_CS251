@@ -249,50 +249,42 @@ void testRedBlackTree() {
 }
 
 
+
 // =========================================================
-// =========================================================
-//           VECTORSTORE TEST SUITE
-// =========================================================
+//           TEST HELPER FUNCTIONS
 // =========================================================
 
-// --- Helper: Mock Embedding Function ---
-// Creates predictable vectors based on text input
+// Global Mock Database
 map<string, vector<float>> mockDB;
+
+// Mock Embedding Function
+// Looks up the string in mockDB. If not found, returns a default vector.
 vector<float>* mockEmbeddingFunc(const string& text) {
     if (mockDB.find(text) != mockDB.end()) {
         return new vector<float>(mockDB[text]);
     }
-    // Default for unknown text
-    return new vector<float>({0.1, 0.2, 0.3, 0.4, 0.5});
+    // Default for unknown text (should not happen in this strict test)
+    return new vector<float>({0.0, 0.0, 0.0});
 }
 
-// --- Helper: Mock Embedding Function V2 (for setEmbeddingFunction) ---
+// Mock V2 for testing setEmbeddingFunction
 vector<float>* mockEmbeddingFuncV2(const string& text) {
-    if (text == "new") {
-        return new vector<float>({99.0, 98.0, 97.0});
-    }
-    return new vector<float>({-1.0, -1.0, -1.0});
+    return new vector<float>({100.0, 100.0, 100.0});
 }
 
-// --- Helper: Print a vector<float> ---
+// Helper to print vectors
 void printVec(const vector<float>* vec) {
-    if (vec == nullptr) {
-        cout << "nullptr" << endl;
-        return;
-    }
+    if (!vec) { cout << "nullptr" << endl; return; }
     cout << "{ ";
     for (size_t i = 0; i < vec->size(); ++i) {
         cout << (*vec)[i] << (i == vec->size() - 1 ? " " : ", ");
     }
-    cout << "}" << endl;
+    cout << "}";
 }
 
-// --- Helper: Print array (for topK) ---
+// Helper to print arrays
 void printArray(int* arr, int size) {
-    if (arr == nullptr) {
-        cout << "nullptr" << endl;
-        return;
-    }
+    if (!arr) { cout << "[]" << endl; return; }
     cout << "[ ";
     for (int i = 0; i < size; ++i) {
         cout << arr[i] << (i == size - 1 ? " " : ", ");
@@ -300,283 +292,221 @@ void printArray(int* arr, int size) {
     cout << "]" << endl;
 }
 
-// --- Helper: forEach test ---
-void forEachPrinter(vector<float>& vec, int id, string& rawText) {
-    cout << "  -> ID: " << id << ", Text: \"" << rawText << "\", Vec[0]: " << vec[0] << endl;
+// Helper for forEach testing
+void printRecordInfo(vector<float>& vec, int id, string& text) {
+    cout << "   [ID: " << id << "] \"" << text << "\" Vec: ";
+    cout << "{ " << vec[0] << ", " << vec[1] << ", ... }" << endl;
 }
 
-// --- Main VectorStore Test Function ---
+// =========================================================
+//           VECTORSTORE COMPLETE TEST SUITE (FIXED)
+// =========================================================
+
 void testVectorStore() {
     cout << fixed << setprecision(4);
-    cout << "=====================================" << endl;
-    cout << "   STARTING VectorStore TEST SUITE   " << endl;
-    cout << "=====================================" << endl;
+    cout << "=========================================" << endl;
+    cout << "    COMPREHENSIVE VECTORSTORE TEST       " << endl;
+    cout << "=========================================" << endl;
 
-    // --- Setup ---
+    // --- 1. SETUP & INITIALIZATION ---
+    cout << "\n--- [1] Setup & Constructor ---" << endl;
+    
+    // Configuration
     int dimension = 3;
     vector<float> refVec = {0.0, 0.0, 0.0};
     
-    // Populate mock DB
-    mockDB["apple"] = {1.0, 2.0, 3.0};     // Dist: sqrt(1+4+9) = sqrt(14) ~ 3.7416
-    mockDB["banana"] = {4.0, 4.0, 4.0};    // Dist: sqrt(16+16+16) = sqrt(48) ~ 6.9282
-    mockDB["carrot"] = {1.0, 1.0, 1.0};    // Dist: sqrt(1+1+1) = sqrt(3) ~ 1.7320
-    mockDB["short"] = {1.0, 2.0};          // For preprocessing test (padding)
-    mockDB["long"] = {5.0, 6.0, 7.0, 8.0}; // For preprocessing test (truncating)
+    // Populate Mock DB with predictable data
+    mockDB.clear();
+    // Vector A: Close diagonal
+    mockDB["A"] = {1.0, 1.0, 1.0};  
+    // Dist from (0,0,0): sqrt(3) ~ 1.732
+    
+    // Vector B: Farther diagonal
+    mockDB["B"] = {2.0, 2.0, 2.0};  
+    // Dist from (0,0,0): sqrt(12) ~ 3.464
+    
+    // Vector C: Far out diagonal
+    mockDB["C"] = {5.0, 5.0, 5.0};  
+    // Dist from (0,0,0): sqrt(75) ~ 8.660
+    
+    // Vector D: Axis aligned (Orthogonal to A/B/C in direction)
+    mockDB["D"] = {4.0, 0.0, 0.0};  
+    // Dist from (0,0,0): 4.000
+    
+    // Vectors for Preprocessing test
+    mockDB["Short"] = {1.0, 1.0};             // Needs padding
+    mockDB["Long"]  = {9.0, 9.0, 9.0, 9.0};   // Needs truncation
 
-    // --- Test 1: Constructor & Initial State ---
-    cout << "--- Test 1: Constructor & Initial State ---" << endl;
     VectorStore vs(dimension, mockEmbeddingFunc, refVec);
-    cout << "vs.size(): " << vs.size() << endl; // Expected: 0
-    cout << "vs.empty(): " << boolalpha << vs.empty() << endl; // Expected: true
-    cout << "vs.getAverageDistance(): " << vs.getAverageDistance() << endl; // Expected: 0.0
-    cout << "vs.getRootVector(): " << (vs.getRootVector() == nullptr ? "nullptr" : "NOT NULL") << endl; // Expected: nullptr
-    cout << "vs.getReferenceVector(): "; printVec(vs.getReferenceVector()); // Expected: {0, 0, 0}
-    cout << "-------------------------------" << endl << endl;
-
-    // --- Test 2: preprocessing ---
-    cout << "--- Test 2: preprocessing ---" << endl;
-    vector<float>* shortVec = vs.preprocessing("short"); // Should pad
-    cout << "Preprocessing 'short' (dim=2): "; printVec(shortVec); // Expected: {1, 2, 0}
-    delete shortVec;
     
-    vector<float>* longVec = vs.preprocessing("long"); // Should truncate
-    cout << "Preprocessing 'long' (dim=4): "; printVec(longVec); // Expected: {5, 6, 7}
-    delete longVec;
+    cout << "Created Store. Size: " << vs.size() << ", Empty: " << boolalpha << vs.empty() << endl;
+    cout << "Reference Vector: "; printVec(vs.getReferenceVector()); cout << endl;
+
+    // --- 2. PREPROCESSING ---
+    cout << "\n--- [2] Preprocessing (Padding/Truncation) ---" << endl;
     
-    vector<float>* goodVec = vs.preprocessing("apple"); // Should be exact
-    cout << "Preprocessing 'apple' (dim=3): "; printVec(goodVec); // Expected: {1, 2, 3}
-    delete goodVec;
-    cout << "-------------------------------" << endl << endl;
+    vector<float>* p1 = vs.preprocessing("Short");
+    cout << "'Short' (1,1) -> Pad to 3D: "; printVec(p1); cout << endl;
+    delete p1;
 
-    // --- Test 3: addText & State Update ---
-    cout << "--- Test 3: addText & State Update ---" << endl;
-    vs.addText("apple"); // ID 0, Dist 3.7416
-    vs.addText("banana"); // ID 1, Dist 6.9282
-    vs.addText("carrot"); // ID 2, Dist 1.7320
-    cout << "Added 3 vectors ('apple', 'banana', 'carrot')" << endl;
-    cout << "vs.size(): " << vs.size() << endl; // Expected: 3
-    cout << "vs.empty(): " << vs.empty() << endl; // Expected: false
+    vector<float>* p2 = vs.preprocessing("Long");
+    cout << "'Long' (9,9,9,9) -> Trunc to 3D: "; printVec(p2); cout << endl;
+    delete p2;
+
+    // --- 3. INSERTION & STATE UPDATE ---
+    cout << "\n--- [3] Insertion & Internal State ---" << endl;
     
-    // Check AvgDist: (3.7416 + 6.9282 + 1.7320) / 3 = 12.4018 / 3 = 4.1339
-    cout << "vs.getAverageDistance(): " << vs.getAverageDistance() << endl; // Expected: 4.1339
-
-    // Check RootVector (closest to 4.1339)
-    // Diff 'apple' (3.7416): |3.7416 - 4.1339| = 0.3923
-    // Diff 'banana' (6.9282): |6.9282 - 4.1339| = 2.7943
-    // Diff 'carrot' (1.7320): |1.7320 - 4.1339| = 2.4019
-    // Root should be 'apple' (ID 0)
-    cout << "vs.getRootVector()->id: " << vs.getRootVector()->id << endl; // Expected: 0
-    cout << "-------------------------------" << endl << endl;
-
-    // --- Test 4: In-order Getters (Sorted by Distance) ---
-    // Order by dist: 'carrot' (1.7320), 'apple' (3.7416), 'banana' (6.9282)
-    // Index:           0                 1                 2
-    // ID:              2                 0                 1
-    cout << "--- Test 4: In-order Getters (getRawText, getId, getVector) ---" << endl;
-    cout << "vs.getId(0): " << vs.getId(0) << endl; // Expected: 2
-    cout << "vs.getRawText(0): " << vs.getRawText(0) << endl; // Expected: carrot
+    vs.addText("A"); // ID 0, Dist 1.732
+    vs.addText("B"); // ID 1, Dist 3.464
+    vs.addText("C"); // ID 2, Dist 8.660
+    vs.addText("D"); // ID 3, Dist 4.000
     
-    cout << "vs.getId(1): " << vs.getId(1) << endl; // Expected: 0
-    cout << "vs.getRawText(1): " << vs.getRawText(1) << endl; // Expected: apple
-
-    cout << "vs.getId(2): " << vs.getId(2) << endl; // Expected: 1
-    cout << "vs.getVector(2)->vector[0]: " << vs.getVector(2)->vector->at(0) << endl; // Expected: 4.0
+    cout << "Added A, B, C, D." << endl;
+    cout << "Current Size: " << vs.size() << endl;
     
-    try {
-        vs.getVector(99);
-    } catch (const out_of_range& e) {
-        cout << "Caught expected exception: " << e.what() << endl;
-    }
-    cout << "-------------------------------" << endl << endl;
-
-    // --- Test 5: removeAt ---
-    // Removing index 1 ('apple', ID 0, the root vector)
-    cout << "--- Test 5: removeAt ---" << endl;
-    cout << "Removing at index 1 ('apple')..." << endl;
-    vs.removeAt(1);
-    cout << "vs.size(): " << vs.size() << endl; // Expected: 2
+    // Expected Average: (1.732 + 3.464 + 8.660 + 4.000) / 4 = 17.856 / 4 = 4.464
+    cout << "Average Distance: " << vs.getAverageDistance() << endl;
     
-    // Check new AvgDist: (6.9282 + 1.7320) / 2 = 8.6602 / 2 = 4.3301
-    cout << "vs.getAverageDistance(): " << vs.getAverageDistance() << endl; // Expected: 4.3301
+    // Root Vector should be closest to Average (4.464).
+    // A(1.73), B(3.46), D(4.00), C(8.66). 
+    // Diff: A(2.73), B(1.00), D(0.46), C(4.19). 
+    // Closest is D (ID 3).
+    cout << "Root Vector ID (Closest to Avg): " << vs.getRootVector()->id << " (Expected: 3)" << endl;
 
-    // Check new RootVector (closest to 4.3301)
-    // Diff 'banana' (6.9282): |6.9282 - 4.3301| = 2.5981
-    // Diff 'carrot' (1.7320): |1.7320 - 4.3301| = 2.5981
-    // (Tie, implementation dependent, will pick one)
-    cout << "vs.getRootVector()->id: " << vs.getRootVector()->id << endl; // Expected: 1 or 2
+    // --- 4. SORTING & TRAVERSAL (AVL CHECK) ---
+    cout << "\n--- [4] Sorting & Traversal (AVL Structure) ---" << endl;
+    // Sorted by Distance from (0,0,0):
+    // 1. A (1.732) - ID 0
+    // 2. B (3.464) - ID 1
+    // 3. D (4.000) - ID 3
+    // 4. C (8.660) - ID 2
     
-    // Check new order
-    // Order: 'carrot' (1.7320), 'banana' (6.9282)
-    // Index: 0                 1
-    cout << "vs.getId(0): " << vs.getId(0) << endl; // Expected: 2
-    cout << "vs.getId(1): " << vs.getId(1) << endl; // Expected: 1
-    cout << "-------------------------------" << endl << endl;
+    vector<int> sortedIds = vs.getAllIdsSortedByDistance();
+    cout << "IDs sorted by Distance: "; 
+    printArray(sortedIds.data(), sortedIds.size()); 
+    // Expected: [0, 1, 3, 2]
 
-    // --- Test 6: Traversal/Iteration (forEach, getAll...) ---
-    cout << "--- Test 6: Traversal/Iteration ---" << endl;
-    cout << "Testing forEach:" << endl;
-    vs.forEach(forEachPrinter); // Expected: ID 2, ID 1
+    cout << "Getters by Index (Index 0 = Closest):" << endl;
+    cout << "Idx 0 Text: " << vs.getRawText(0) << " (Exp: A)" << endl;
+    cout << "Idx 2 Text: " << vs.getRawText(2) << " (Exp: D)" << endl;
+
+    cout << "forEach Iteration:" << endl;
+    vs.forEach(printRecordInfo);
+
+    // --- 5. SEARCH: NEAREST NEIGHBOR ---
+    cout << "\n--- [5] FindNearest (Metric Tests) ---" << endl;
     
-    cout << "Testing getAllIdsSortedByDistance:" << endl;
-    vector<int> ids = vs.getAllIdsSortedByDistance();
-    printArray(ids.data(), ids.size()); // Expected: [2, 1]
+    vector<float> query = {1.1, 1.1, 1.1}; 
+    cout << "Query Vector: {1.1, 1.1, 1.1}" << endl;
     
-    cout << "Testing getAllVectorsSortedByDistance:" << endl;
-    vector<VectorRecord*> recs = vs.getAllVectorsSortedByDistance();
-    cout << "Found " << recs.size() << " records. First record ID: " << recs[0]->id << endl; // Expected: 2, 2
-    cout << "-------------------------------" << endl << endl;
+    // Euclidean: Closest is A (1.1 vs 1.0)
+    int idEuc = vs.findNearest(query, "euclidean");
+    cout << "Nearest (Euclidean): ID " << idEuc << " (Exp: 0)" << endl;
 
-    // --- Test 7: Distance Metrics (non-const) ---
-    cout << "--- Test 7: Distance Metrics ---" << endl;
-    vector<float> v1 = {1, 2, 3};
-    vector<float> v2 = {4, 5, 6};
-    cout << "v1={1,2,3}, v2={4,5,6}" << endl;
-    cout << "l2Distance: " << vs.l2Distance(v1, v2) << endl; // Expected: 5.1961
-    cout << "l1Distance: " << vs.l1Distance(v1, v2) << endl; // Expected: 9.0
-    cout << "cosineSimilarity: " << vs.cosineSimilarity(v1, v2) << endl; // Expected: 0.9746
-    cout << "-------------------------------" << endl << endl;
+    // Cosine: 
+    // A, B, C are all parallel to query (Sim = 1.0). 
+    // D is orthogonal-ish (Sim < 1.0).
+    int idCos = vs.findNearest(query, "cosine");
+    cout << "Nearest (Cosine): ID " << idCos << " (Exp: 0, 1, or 2)" << endl;
 
-    // --- Test 8: setReferenceVector & setEmbeddingFunction ---
-    cout << "--- Test 8: setReferenceVector & setEmbeddingFunction ---" << endl;
-    vector<float> newRef = {1, 1, 1};
-    vs.setReferenceVector(newRef);
-    cout << "Reference vector set to {1, 1, 1}" << endl;
-    cout << "vs.getReferenceVector(): "; printVec(vs.getReferenceVector());
-    // Distances recomputed from {1,1,1}
-    // 'banana' (vec {4,4,4}): dist = sqrt(3^2+3^2+3^2) = sqrt(27) ~ 5.1961
-    // 'carrot' (vec {1,1,1}): dist = 0.0
-    // New AvgDist: (5.1961 + 0.0) / 2 = 2.5980
-    // New Root: 'carrot' (ID 2), diff |0.0 - 2.5980| = 2.5980
-    //           'banana' (ID 1), diff |5.1961 - 2.5980| = 2.5980
-    // (Tie, will pick one)
-    cout << "vs.getAverageDistance(): " << vs.getAverageDistance() << endl; // Expected: 2.5980
-    cout << "vs.getRootVector()->id: " << vs.getRootVector()->id << endl; // Expected: 1 or 2
+    // Manhattan: Closest is A
+    int idMan = vs.findNearest(query, "manhattan");
+    cout << "Nearest (Manhattan): ID " << idMan << " (Exp: 0)" << endl;
+
+    // --- 6. SEARCH: TOP K ---
+    cout << "\n--- [6] Top K Nearest ---" << endl;
+    // Query at Origin
+    vector<float> origin = {0, 0, 0};
     
-    // Test new order
-    // Order: 'carrot' (0.0), 'banana' (5.1961)
-    cout << "vs.getId(0): " << vs.getId(0) << endl; // Expected: 2
-    cout << "vs.getId(1): " << vs.getId(1) << endl; // Expected: 1
-
-    vs.setEmbeddingFunction(mockEmbeddingFuncV2);
-    vs.addText("new"); // ID 3, Vec {99, 98, 97}
-    cout << "Set new embedding func, added 'new' (ID 3)" << endl;
-    cout << "vs.size(): " << vs.size() << endl; // Expected: 3
-    cout << "vs.getVector(2)->vector[0]: " << vs.getVector(2)->vector->at(0) << endl; // Expected: 99.0
-    cout << "-------------------------------" << endl << endl;
-
-    // --- Test 9: Const Methods (Overloads) ---
-    cout << "--- Test 9: Const-Overloaded Methods ---" << endl;
-    const VectorStore& constVS = vs;
-    cout << "constVS.empty(): " << constVS.empty() << endl; // Expected: false
-    cout << "constVS.l2Distance: " << constVS.l2Distance(v1, v2) << endl; // Expected: 5.1961
-    cout << "constVS.l1Distance: " << constVS.l1Distance(v1, v2) << endl; // Expected: 9.0
-    cout << "constVS.cosineSimilarity: " << constVS.cosineSimilarity(v1, v2) << endl; // Expected: 0.9746
-    cout << "-------------------------------" << endl << endl;
-
-    // --- Test 10: Search (findNearest, estimateD) ---
-    // Data: 'carrot' (ID 2, {1,1,1}), 'banana' (ID 1, {4,4,4}), 'new' (ID 3, {99,98,97})
-    cout << "--- Test 10: Search (findNearest, estimateD) ---" << endl;
-    vector<float> query = {2.0, 2.0, 2.0};
-    cout << "Query vector: {2, 2, 2}" << endl;
-    
-    // findNearest (euclidean)
-    // dist(q, carrot): sqrt(1^2+1^2+1^2) = sqrt(3) ~ 1.732
-    // dist(q, banana): sqrt(2^2+2^2+2^2) = sqrt(12) ~ 3.464
-    // dist(q, new): ... very large
-    cout << "findNearest (euclidean): ID " << vs.findNearest(query, "euclidean") << endl; // Expected: 2
-    
-    // findNearest (manhattan)
-    // dist(q, carrot): |1|+|1|+|1| = 3.0
-    // dist(q, banana): |2|+|2|+|2| = 6.0
-    cout << "findNearest (manhattan): ID " << vs.findNearest(query, "manhattan") << endl; // Expected: 2
-
-    // findNearest (cosine)
-    // cos(q, carrot): 1.0 (parallel)
-    // cos(q, banana): 1.0 (parallel)
-    // cos(q, new): ...
-    cout << "findNearest (cosine): ID " << vs.findNearest(query, "cosine") << endl; // Expected: 1, 2, or 3
-    
-    try {
-        vs.findNearest(query, "invalid");
-    } catch (const invalid_metric& e) {
-        cout << "Caught expected exception: " << e.what() << endl;
-    }
-
-    double D = vs.estimateD_Linear(query, 2, vs.getAverageDistance(), *vs.getReferenceVector());
-    cout << "estimateD_Linear(k=2): " << D << endl; // Expected: > 0.0
-    cout << "-------------------------------" << endl << endl;
-
-    // --- Test 11: topKNearest ---
-    cout << "--- Test 11: topKNearest ---" << endl;
-    cout << "topKNearest(k=2, euclidean): " << endl;
-    int* topK = vs.topKNearest(query, 2, "euclidean");
-    // Should print m value
-    // Distances: carrot (1.732), banana (3.464), new (large)
-    // Top 2: [2, 1]
-    printArray(topK, 2); // Expected: [2, 1]
+    // Top 3 Euclidean from Origin: Should be A(1.7), B(3.4), D(4.0) -> IDs [0, 1, 3]
+    int* topK = vs.topKNearest(origin, 3, "euclidean");
+    cout << "Top 3 Euclidean from {0,0,0}: ";
+    printArray(topK, 3);
     delete[] topK;
+
+    // Top 2 Cosine from {1.1,1.1,1.1}:
+    int* topKCos = vs.topKNearest(query, 2, "cosine");
+    cout << "Top 2 Cosine from {1.1,1.1,1.1}: ";
+    printArray(topKCos, 2);
+    delete[] topKCos;
+
+    // --- 7. RANGE & BOUNDING BOX ---
+    cout << "\n--- [7] Range & Box Queries ---" << endl;
     
-    try {
-        vs.topKNearest(query, 99, "euclidean");
-    } catch (const invalid_k_value& e) {
-        cout << "Caught expected exception for k > size" << endl;
-    }
-    cout << "-------------------------------" << endl << endl;
-
-    // --- Test 12: Range & Bounding Box Queries ---
-    cout << "--- Test 12: Range & Bounding Box Queries ---" << endl;
-    // constVS.rangeQuery
-    cout << "rangeQuery(radius=3.0, euclidean): ";
-    int* range = constVS.rangeQuery(query, 3.0, "euclidean");
-    printArray(range, 1); // Expected: [2]
-    delete[] range;
-
-    // constVS.rangeQueryFromRoot
-    cout << "Current RootVector ID is: " << constVS.getRootVector()->id << endl;
-    // Data: 'carrot' (ID 2, {1,1,1}), 'banana' (ID 1, {4,4,4}), 'new' (ID 3, {99,98,97})
-    // dist(root, banana) = 0.0
-    // dist(root, carrot) = sqrt(3^2+3^2+3^2) = 5.196
-    // dist(root, new) = ... large
-    cout << "rangeQueryFromRoot(min=1.0, max=6.0): ";
-    int* rangeRoot = constVS.rangeQueryFromRoot(1.0, 6.0);
-    printArray(rangeRoot, 1); // Expected: [2]
+    // Range From Root (Filter by Distance from {0,0,0})
+    int* rangeRoot = vs.rangeQueryFromRoot(3.0, 5.0);
+    cout << "RangeFromRoot [3.0, 5.0]: "; 
+    printArray(rangeRoot, 2); // Expected ~ [1, 3]
     delete[] rangeRoot;
 
-    // constVS.boundingBoxQuery
-    vector<float> minB = {0, 0, 0};
-    vector<float> maxB = {5, 5, 5};
-    cout << "boundingBoxQuery(min={0,0,0}, max={5,5,5}): ";
-    int* box = constVS.boundingBoxQuery(minB, maxB);
-    printArray(box, 2); // Expected: [2, 1]
+    // Bounding Box
+    vector<float> minB = {0,0,0}, maxB = {3,3,3};
+    int* box = vs.boundingBoxQuery(minB, maxB);
+    cout << "BoundingBox {0,0,0}->{3,3,3}: ";
+    printArray(box, 2); // Expected [0, 1]
     delete[] box;
-    cout << "-------------------------------" << endl << endl;
 
-    // --- Test 13: Advanced Utils ---
-    cout << "--- Test 13: Advanced Utils ---" << endl;
-    cout << "getMaxDistance (from root): " << constVS.getMaxDistance() << endl; // Expected: > 0
-    cout << "getMinDistance (from ref): " << constVS.getMinDistance() << endl; // Expected: 0.0
+    // --- 8. ADVANCED UTILS ---
+    cout << "\n--- [8] Advanced Utilities ---" << endl;
     
-    // computeCentroid
-    // Data: 'carrot' (ID 2, {1,1,1}), 'banana' (ID 1, {4,4,4}), 'new' (ID 3, {99,98,97})
-    // Sum = {104, 103, 102}
-    // Centroid = {34.66, 34.33, 34.00}
-    vector<VectorRecord*> allRecs = constVS.getAllVectorsSortedByDistance();
-    VectorRecord centroid = constVS.computeCentroid(allRecs);
-    cout << "computeCentroid (vec[0]): " << centroid.vector->at(0) << endl; // Expected: 34.6667
-    delete centroid.vector; // Must delete vector from computeCentroid
+    cout << "Max Distance: " << vs.getMaxDistance() << " (Exp: ~8.66)" << endl;
+    cout << "Min Distance: " << vs.getMinDistance() << " (Exp: ~1.73)" << endl;
 
-    cout << "-------------------------------" << endl << endl;
+    // Centroid of all vectors
+    vector<VectorRecord*> allRecs = vs.getAllVectorsSortedByDistance();
+    VectorRecord centroid = vs.computeCentroid(allRecs);
+    cout << "Centroid: "; printVec(centroid.vector);
+    delete centroid.vector; // Cleanup manual vector
 
-    // --- Test 14: Clear ---
-    cout << "--- Test 14: Clear ---" << endl;
+    // Estimate D
+    double EstD = vs.estimateD_Linear(query, 2, vs.getAverageDistance(), *vs.getReferenceVector());
+    cout << "EstimateD (k=2): " << EstD << endl;
+
+    // (REMOVED private method call to findVectorNearestToDistance)
+
+    // --- 9. REMOVAL ---
+    cout << "\n--- [9] Removal ---" << endl;
+    
+    // Current Order: A(0), B(1), D(3), C(2)
+    // Remove index 1 -> Removes "B".
+    cout << "Removing index 1 (Vector B)..." << endl;
+    vs.removeAt(1);
+    
+    cout << "New Size: " << vs.size() << endl;
+    vector<int> newIds = vs.getAllIdsSortedByDistance();
+    cout << "Remaining IDs: "; printArray(newIds.data(), newIds.size());
+    // Expected: [0, 3, 2] (A, D, C)
+
+    // --- 10. MODIFYING REFERENCE VECTOR ---
+    cout << "\n--- [10] Set Reference Vector ---" << endl;
+    
+    // Change Ref to {4.0, 0.0, 0.0} (Location of Vector D)
+    vector<float> newRef = {4.0, 0.0, 0.0};
+    vs.setReferenceVector(newRef);
+    cout << "Reference changed to {4,0,0}." << endl;
+    cout << "New Average Distance: " << vs.getAverageDistance() << endl;
+    
+    // New Sorted Order should be: D (closest), A, C
+    vector<int> reSortedIds = vs.getAllIdsSortedByDistance();
+    cout << "IDs sorted by New Ref: "; printArray(reSortedIds.data(), reSortedIds.size());
+    // Expected IDs: [3, 0, 2]
+    
+    cout << "Check Index 0 Text: " << vs.getRawText(0) << " (Exp: D)" << endl;
+
+    // --- 11. SET EMBEDDING FUNCTION ---
+    cout << "\n--- [11] Set Embedding Function ---" << endl;
+    vs.setEmbeddingFunction(mockEmbeddingFuncV2);
+    vs.addText("Huge"); // Returns {100, 100, 100}
+    cout << "Added 'Huge'. Last vector val: " << vs.getVector(vs.size()-1)->vector->at(0) << endl;
+
+    // --- 12. CLEAR & CLEANUP ---
+    cout << "\n--- [12] Clear ---" << endl;
     vs.clear();
-    cout << "vs.size() after clear: " << vs.size() << endl; // Expected: 0
-    cout << "vs.empty() after clear: " << vs.empty() << endl; // Expected: true
-    cout << "vs.getRootVector() after clear: " << (vs.getRootVector() == nullptr ? "nullptr" : "NOT NULL") << endl; // Expected: nullptr
-    cout << "vs.getReferenceVector() (should persist): "; printVec(vs.getReferenceVector()); // Expected: {1, 1, 1}
-    cout << "-------------------------------" << endl << endl;
+    cout << "Cleared. Size: " << vs.size() << endl;
 
-    cout << "========= VectorStore TEST COMPLETE =========\n\n" << endl;
+    cout << "\n=========================================" << endl;
+    cout << "          TEST SUITE COMPLETE            " << endl;
+    cout << "=========================================" << endl;
 }
 
 

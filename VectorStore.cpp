@@ -1,6 +1,7 @@
 // NOTE: Per assignment rules, only this single include is allowed here.
 #include "VectorStore.h"
 
+
 // =====================================
 // Helper functions
 // =====================================
@@ -1152,11 +1153,12 @@ void VectorStore::addText(string rawText) {
     VectorRecord newRecord(newId, rawText, newVec, distFromRef);
     newRecord.norm = vecNorm;
 
+    bool rebuild = false;
     // If the store is empty, sets this vector as the root vector.
     if (old_count == 0) {
         this->rootVector = new VectorRecord(newRecord);
+        // no need to rebuild when first inserted
     } 
-    // If the store is not empty:
     else {
         // Check if new vector's distance is closer to the average
         double rootDistToAvg = fabs(this->rootVector->distanceFromReference - this->averageDistance);
@@ -1164,14 +1166,19 @@ void VectorStore::addText(string rawText) {
 
         if (newDistToAvg < rootDistToAvg) {
             delete this->rootVector;
-            this->rootVector = new VectorRecord(newRecord); 
+            this->rootVector = new VectorRecord(newRecord);
+            rebuild = true; // mark that we must reconstruct AVL so that this becomes the AVL root
         }
     }
-    // insert vector into AVL 
+
+    // insert vector into AVL and RBT first (so the trees contain the new record)
     this->vectorStore->insert(distFromRef, newRecord);
-    
-    // insert vector into RBT
     this->normIndex->insert(newRecord.norm, newRecord);
+
+    // If rootVector changed, rebuild AVL so that the selected rootVector becomes the actual AVL root
+    if (rebuild) {
+        rebuildTreeWithNewRoot(this->rootVector);
+    }
 }
 
 // helper for finding vector at given index with INORDER Traversal
@@ -1302,6 +1309,8 @@ bool VectorStore::removeAt(int index) {
         delete this->rootVector;
         // Make a new copy of the new root
         this->rootVector = new VectorRecord(*newRoot);
+        // Rebuild AVL so that the selected rootVector becomes the actual AVL root
+        rebuildTreeWithNewRoot(this->rootVector);
     }
 
     return true;
@@ -1323,9 +1332,9 @@ void VectorStore::setReferenceVector(const vector<float>& newReference) {
     vector<VectorRecord> allRecords;
     allRecords.reserve(this->count); // Reserve space
 
-    // use AVL to traverse
+    // use AVL to traverse (BFS) to collect all current records
     queue<AVLTree<double, VectorRecord>::AVLNode*> q;
-    q.push(this->vectorStore->root);
+    q.push(this->vectorStore->getRoot()); // Use public getRoot()
 
     while (!q.empty()) {
         AVLTree<double, VectorRecord>::AVLNode* node = q.front();
@@ -1333,14 +1342,16 @@ void VectorStore::setReferenceVector(const vector<float>& newReference) {
 
         if (node == nullptr) continue;
         
-        // Store a *copy* of the record.
+        // Store a *copy* of the record. 
+        // Note: The vector<float>* pointer is copied, so the data it points to 
+        // remains valid even after we clear the tree nodes below.
         allRecords.push_back(node->data);
 
         if (node->pLeft) q.push(node->pLeft);
         if (node->pRight) q.push(node->pRight);
     }
 
-    // clear both trees
+    // clear both trees (deletes nodes, but not the float vectors pointed to by records)
     this->vectorStore->clear();
     this->normIndex->clear();
 
@@ -1353,7 +1364,7 @@ void VectorStore::setReferenceVector(const vector<float>& newReference) {
 
     this->averageDistance = totalDistance / this->count;
 
-    // Find the new root vector
+    // Find the new root vector (closest to average distance)
     VectorRecord* newRoot = nullptr;
     double minDiff = -1.0; // -1 = not set
 
@@ -1366,18 +1377,20 @@ void VectorStore::setReferenceVector(const vector<float>& newReference) {
         }
     }
 
-    // Update new rootVector 
+    // Update new rootVector property
     delete this->rootVector;
     this->rootVector = new VectorRecord(*newRoot);
 
-    // Reconstruct the AVL tree (and RBT)
+    // Re-insert all records into the trees
     for (const VectorRecord& rec : allRecords) {
-        // Insert into AVL tree with new distance
+        // 1. Insert into AVL tree with new distance
         this->vectorStore->insert(rec.distanceFromReference, rec);
         
-        // Re-insert into RBT
+        // 2. Re-insert into RBT 
         this->normIndex->insert(rec.norm, rec);
     }
+
+    rebuildTreeWithNewRoot(this->rootVector);
 }
 
 vector<float>* VectorStore::getReferenceVector() const {
@@ -1755,173 +1768,82 @@ double VectorStore::cosineSimilarity(const vector<float>& v1, const vector<float
 }
 // RANGE QUERY
 int* VectorStore::rangeQueryFromRoot(double minDist, double maxDist) const {
-    
+    // Use the AVL tree's keys (distanceFromReference) to collect nodes whose
+    // distance from the reference vector lies within [minDist, maxDist]. This
+    // allows pruning and runs in O(k + log n) where k is number of results.
     vector<int> matchingIds;
 
-    // If store is empty or there's no root vector, return empty array
-    if (this->empty() || this->rootVector == nullptr) {
+    if (this->empty()) {
         return new int[0];
     }
 
-    // Get the root vector's coordinates
-    const vector<float>* rootCoords = this->rootVector->vector;
+    // Recursive helper that prunes branches by key (node->key is distanceFromReference)
+    auto collectInRangeHelper = [&](AVLTree<double, VectorRecord>::AVLNode* node, auto&& self) -> void {
+        if (!node) return;
+        if (node->key > minDist) self(node->pLeft, self);
+        if (node->key >= minDist && node->key <= maxDist) matchingIds.push_back(node->data.id);
+        if (node->key < maxDist) self(node->pRight, self);
+    };
 
-    queue<AVLTree<double, VectorRecord>::AVLNode*> q;
-    q.push(this->vectorStore->getRoot());
+    collectInRangeHelper(this->vectorStore->getRoot(), collectInRangeHelper);
 
-    while (!q.empty()) {
-        AVLTree<double, VectorRecord>::AVLNode* node = q.front();
-        q.pop();
-
-        if (node == nullptr) continue;
-
-        if (node->data.id != this->rootVector->id) {
-            // Calculate Euclidean distance from this node to the root vector
-            double dist = l2Distance(*(node->data.vector), *rootCoords);
-
-            // Check if it's in the range
-            if (dist >= minDist && dist <= maxDist) {
-                matchingIds.push_back(node->data.id);
-            }
-        } 
-        else {
-             // Check the root vector itself (distance is 0)
-            if (0.0 >= minDist && 0.0 <= maxDist) {
-                matchingIds.push_back(node->data.id);
-            }
-        }
-
-        // Continue traversal
-        if (node->pLeft) q.push(node->pLeft);
-        if (node->pRight) q.push(node->pRight);
-    }
-
-    // Convert the vector of IDs to a dynamic int array
     int* idArray = new int[matchingIds.size()];
-    for (size_t i = 0; i < matchingIds.size(); ++i) {
-        idArray[i] = matchingIds[i];
-    }
-
+    for (size_t i = 0; i < matchingIds.size(); ++i) idArray[i] = matchingIds[i];
     return idArray;
 }
 int* VectorStore::rangeQuery(const vector<float>& query, double radius, string metric) const {
-    
-    bool maximize; // true for cosine (>= radius)
-    bool validMetric = true;
-
-    if (metric == "cosine") {
-        maximize = true;
-    } 
-    else if (metric == "euclidean" || metric == "manhattan") {
-        maximize = false;
-    } 
-    else {
-        validMetric = false;
+    // Validate metric and compute score for every vector (O(n * d)). Use
+    // distanceByMetric helper for consistency and throw invalid_metric on bad input.
+    if (!(metric == "cosine" || metric == "euclidean" || metric == "manhattan")) {
+        throw invalid_metric();
     }
 
-    if (!validMetric) {
-        throw invalid_metric("Invalid metric!");
-    }
+    bool maximize = (metric == "cosine");
 
     vector<int> matchingIds;
-    // use AVL to traverse
-    queue<AVLTree<double, VectorRecord>::AVLNode*> q;
-    q.push(this->vectorStore->getRoot());
+    // traverse entire AVL (O(n)). Implement recursion with a local Y-combinator style helper
+    auto visitAllHelper = [&](AVLTree<double, VectorRecord>::AVLNode* node, auto&& self) -> void {
+        if (!node) return;
+        self(node->pLeft, self);
+        double score = distanceByMetric(query, *(node->data.vector), metric);
+        bool inRange = maximize ? (score >= radius) : (score <= radius);
+        if (inRange) matchingIds.push_back(node->data.id);
+        self(node->pRight, self);
+    };
 
-    while (!q.empty()) {
-        AVLTree<double, VectorRecord>::AVLNode* node = q.front();
-        q.pop();
+    visitAllHelper(this->vectorStore->getRoot(), visitAllHelper);
 
-        if (node == nullptr) continue;
-
-        VectorRecord& currentRecord = node->data;
-        double score;
-
-        // Calculate the score using the const-overloaded helpers
-        if (metric == "euclidean") {
-            score = l2Distance(query, *(currentRecord.vector));
-        } 
-        else if (metric == "manhattan") {
-            score = l1Distance(query, *(currentRecord.vector));
-        } 
-        else { // "cosine"
-            score = cosineSimilarity(query, *(currentRecord.vector));
-        }
-
-        // Check if the score is within the radius
-        bool inRange = false;
-        if (maximize) {
-            // For cosine, "within radius" means score is >= radius
-            if (score >= radius) {
-                inRange = true;
-            }
-        } 
-        else {
-            // For distance, "within radius" means distance is <= radius
-            if (score <= radius) {
-                inRange = true;
-            }
-        }
-
-        if (inRange) {
-            matchingIds.push_back(currentRecord.id);
-        }
-
-        // Continue traversal
-        if (node->pLeft) q.push(node->pLeft);
-        if (node->pRight) q.push(node->pRight);
-    }
-
-    // Convert the vector of IDs to a dynamic int array
     int* idArray = new int[matchingIds.size()];
-    for (size_t i = 0; i < matchingIds.size(); ++i) {
-        idArray[i] = matchingIds[i];
-    }
-
+    for (size_t i = 0; i < matchingIds.size(); ++i) idArray[i] = matchingIds[i];
     return idArray;
 }
 
 int* VectorStore::boundingBoxQuery(const vector<float>& minBound, const vector<float>& maxBound) const {
-    
     vector<int> matchingIds;
 
-    queue<AVLTree<double, VectorRecord>::AVLNode*> q;
-    q.push(this->vectorStore->getRoot());
+    // Basic validation of bound dimensions
+    if ((int)minBound.size() != this->dimension || (int)maxBound.size() != this->dimension) {
+        return new int[0];
+    }
 
-    while (!q.empty()) {
-        AVLTree<double, VectorRecord>::AVLNode* node = q.front();
-        q.pop();
-
-        if (node == nullptr) continue;
-
+    // Traverse all nodes (O(n)) and test bounding-box inclusion using local recursive helper
+    auto visitBoxHelper = [&](AVLTree<double, VectorRecord>::AVLNode* node, auto&& self) -> void {
+        if (!node) return;
+        self(node->pLeft, self);
         VectorRecord& currentRecord = node->data;
         vector<float>* vec = currentRecord.vector;
-
         bool isInside = true;
-        // Check every dimension
         for (int i = 0; i < this->dimension; ++i) {
-            // Check if the vector's coordinate is outside the bounds
-            if ((*vec)[i] < minBound[i] || (*vec)[i] > maxBound[i]) {
-                isInside = false;
-                break;
-            }
+            if ((*vec)[i] < minBound[i] || (*vec)[i] > maxBound[i]) { isInside = false; break; }
         }
+        if (isInside) matchingIds.push_back(currentRecord.id);
+        self(node->pRight, self);
+    };
 
-        if (isInside) {
-            matchingIds.push_back(currentRecord.id);
-        }
+    visitBoxHelper(this->vectorStore->getRoot(), visitBoxHelper);
 
-        // Continue traversal
-        if (node->pLeft) q.push(node->pLeft);
-        if (node->pRight) q.push(node->pRight);
-    }
-
-    // Convert the vector of IDs to a dynamic int array
     int* idArray = new int[matchingIds.size()];
-    for (size_t i = 0; i < matchingIds.size(); ++i) {
-        idArray[i] = matchingIds[i];
-    }
-
+    for (size_t i = 0; i < matchingIds.size(); ++i) idArray[i] = matchingIds[i];
     return idArray;
 }
 
@@ -2026,6 +1948,64 @@ double VectorStore::distanceByMetric(const vector<float>& a, const vector<float>
     
     throw invalid_metric();
 }
+
+// Rebuild the AVL tree so that the provided `newRoot` becomes the actual AVL root.
+// This implementation uses an inorder traversal to obtain the records in
+// ascending order by distance (so no sorting or extra headers are required),
+// then builds a balanced BST and forces the chosen index as the root.
+static void collectInorderRecords(AVLTree<double, VectorRecord>::AVLNode* node, vector<VectorRecord>& out) {
+    if (!node) return;
+    collectInorderRecords(node->pLeft, out);
+    out.push_back(node->data);
+    collectInorderRecords(node->pRight, out);
+}
+
+static AVLTree<double, VectorRecord>::AVLNode* buildBalancedFromRange(const vector<VectorRecord>& records, int l, int r) {
+    if (l > r) return nullptr;
+    int mid = (l + r) / 2;
+    AVLTree<double, VectorRecord>::AVLNode* node = new AVLTree<double, VectorRecord>::AVLNode(records[mid].distanceFromReference, records[mid]);
+    node->pLeft = buildBalancedFromRange(records, l, mid - 1);
+    node->pRight = buildBalancedFromRange(records, mid + 1, r);
+    node->balance = EH;
+    return node;
+}
+
+void VectorStore::rebuildTreeWithNewRoot(VectorRecord* newRoot) {
+    if (newRoot == nullptr) return;
+
+    // Collect records in sorted order (inorder traversal of AVL)
+    vector<VectorRecord> records;
+    records.reserve(this->count);
+    collectInorderRecords(this->vectorStore->getRoot(), records);
+
+    if (records.empty()) return;
+
+    // Find index of chosen root by id (prefer exact id match). If not found, pick
+    // the element whose distance is closest to averageDistance.
+    int chosenIdx = -1;
+    for (size_t i = 0; i < records.size(); ++i) {
+        if (records[i].id == newRoot->id) { chosenIdx = (int)i; break; }
+    }
+    if (chosenIdx == -1) {
+        double bestDiff = -1.0;
+        for (size_t i = 0; i < records.size(); ++i) {
+            double diff = fabs(records[i].distanceFromReference - this->averageDistance);
+            if (bestDiff < 0.0 || diff < bestDiff) { bestDiff = diff; chosenIdx = (int)i; }
+        }
+    }
+
+    // Clear existing AVL nodes (we will rebuild)
+    this->vectorStore->clear();
+
+    // Force chosen element as root and attach balanced left/right subtrees
+    AVLTree<double, VectorRecord>::AVLNode* newRootNode = new AVLTree<double, VectorRecord>::AVLNode(records[chosenIdx].distanceFromReference, records[chosenIdx]);
+    newRootNode->pLeft = buildBalancedFromRange(records, 0, chosenIdx - 1);
+    newRootNode->pRight = buildBalancedFromRange(records, chosenIdx + 1, (int)records.size() - 1);
+    newRootNode->balance = EH;
+
+    this->vectorStore->root = newRootNode;
+}
+
 
 
 // Explicit template instantiation for the type used by VectorStore

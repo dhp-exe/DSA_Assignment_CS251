@@ -1,7 +1,6 @@
 // NOTE: Per assignment rules, only this single include is allowed here.
 #include "VectorStore.h"
 
-
 // =====================================
 // Helper functions
 // =====================================
@@ -64,6 +63,7 @@ void AVLTree<K, T>::printTreeStructure() const {
 				return;
 		}
 }
+
 
 //TODO: Implement all AVLTree<K, T> methods here
 
@@ -1834,7 +1834,7 @@ int* VectorStore::boundingBoxQuery(const vector<float>& minBound, const vector<f
         vector<float>* vec = currentRecord.vector;
         bool isInside = true;
         for (int i = 0; i < this->dimension; ++i) {
-            if ((*vec)[i] < minBound[i] || (*vec)[i] > maxBound[i]) { isInside = false; break; }
+            if ((*vec)[i] <= minBound[i] || (*vec)[i] >= maxBound[i]) { isInside = false; break; }
         }
         if (isInside) matchingIds.push_back(currentRecord.id);
         self(node->pRight, self);

@@ -509,14 +509,82 @@ void testVectorStore() {
     cout << "=========================================" << endl;
 }
 
+void test_001() {
+    cout << "AVL Tree insert test" << endl;
 
+    // Create an AVL tree with int key and int value
+    AVLTree<int, int> avl;
+
+    // Insert values
+    avl.insert(50, 500);
+    avl.insert(10, 100);
+    avl.insert(20, 200);
+
+    // Print tree structure
+    avl.printTreeStructure();
+}
+vector<float>* specExampleEmbedding(const string& text) {
+    if (text == "v1") return new vector<float>{1.0, 0.0, 0.0};
+    if (text == "v2") return new vector<float>{2.0, 0.0, 0.0};
+    if (text == "v3") return new vector<float>{3.0, 0.0, 0.0};
+    if (text == "v4") return new vector<float>{4.0, 0.0, 0.0};
+    if (text == "v5") return new vector<float>{5.0, 0.0, 0.0};
+    return new vector<float>{0.0, 0.0, 0.0};
+}
+
+void test_spec_example() {
+    cout << "============================================" << endl;
+    cout << "       SPECIFICATION EXAMPLE SCENARIO       " << endl;
+    cout << "============================================" << endl;
+
+    // 1. Setup VectorStore with Ref = (0,0,0)
+    vector<float> ref = {0.0, 0.0, 0.0};
+    VectorStore store(3, specExampleEmbedding, ref);
+
+    // Data to insert
+    string inputs[] = {"v1", "v2", "v3", "v4", "v5"};
+    double expectedDists[] = {1.0, 2.0, 3.0, 4.0, 5.0};
+
+    cout << fixed << setprecision(2);
+
+    for (int i = 0; i < 5; ++i) {
+        cout << "\n>>> Inserting " << inputs[i] << " (Dist = " << expectedDists[i] << ")" << endl;
+        
+        store.addText(inputs[i]);
+
+        // Print current state
+        double currentAvg = store.getAverageDistance();
+        VectorRecord* root = store.getRootVector();
+
+        cout << "    Current Store Size: " << store.size() << endl;
+        cout << "    Current Avg Dist  : " << currentAvg << endl;
+        
+        if (root) {
+            cout << "    Current Root      : " << root->rawText 
+                 << " (Dist: " << root->distanceFromReference << ")" << endl;
+        } else {
+            cout << "    Current Root      : nullptr" << endl;
+        }
+    }
+
+    cout << "\n>>> FINAL STATE EXPECTATION CHECK <<<" << endl;
+    // Based on the spec example (Page 20/24):
+    // Avg should be 3.0
+    // Root should be v3 (Dist 3.0)
+    cout << "Final Average: " << store.getAverageDistance() << " (Spec expects 3.00)" << endl;
+    if (store.getRootVector()) {
+        cout << "Final Root   : " << store.getRootVector()->rawText << " (Spec expects v3)" << endl;
+    }
+    
+    cout << "============================================" << endl;
+}
 // --- Main Function ---
 int main() {
     
     //testAVLTree();
     //testRedBlackTree();
-
-    testVectorStore();
+    //testVectorStore();
+    test_spec_example();
 
     return 0;
 }

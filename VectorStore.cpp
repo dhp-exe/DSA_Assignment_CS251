@@ -622,34 +622,30 @@ void RedBlackTree<K,T>:: rotateRight(RBTNode* node){
 template <class K, class T>
 typename RedBlackTree<K, T>::RBTNode* RedBlackTree<K, T>:: lowerBoundNode(const K& key) const {
     RBTNode* cur = root;
-    RBTNode* res = nullptr;
 
     while (cur) {
         if (cur->key >= key) {
-            res = cur;
-            cur = cur->left;
+            return cur;
         } 
         else {
             cur = cur->right;
         }
     }
-    return res;
+    return nullptr;
 }
 template <class K, class T>
 typename RedBlackTree<K, T>::RBTNode* RedBlackTree<K, T>:: upperBoundNode(const K& key) const {
     RBTNode* cur = root;
-    RBTNode* res = nullptr;
 
     while (cur) {
         if (cur->key > key) {
-            res = cur;
-            cur = cur->left;
+            return cur;
         } 
         else {
             cur = cur->right;
         }
     }
-    return res;
+    return nullptr;
 }
 // EMPTY
 template <class K, class T>
@@ -966,30 +962,51 @@ bool RedBlackTree<K, T>::contains(const K& key) const{
 // LOWERBOUND & UPPERBOUND
 template <class K, class T>
 typename RedBlackTree<K, T>::RBTNode* RedBlackTree<K, T>::lowerBound(const K& key, bool& found) const {
-    
-    RBTNode* result = this->lowerBoundNode(key);
+    RBTNode* cur = root;
+    RBTNode* res = nullptr;
 
-    if (result == nullptr) {
+    while (cur) {
+        if (cur->key >= key) {
+            res = cur;
+            cur = cur->left;
+        } 
+        else {
+            cur = cur->right;
+        }
+    }
+
+    if (res == nullptr) {
+        found = false;
+    } else {
+        found = true;
+    }
+
+    return res;
+}
+template <class K, class T>
+typename RedBlackTree<K, T>::RBTNode* RedBlackTree<K, T>::upperBound(const K& key, bool& found) const {
+    
+    RBTNode* cur = root;
+    RBTNode* res = nullptr;
+
+    while (cur) {
+        if (cur->key > key) {
+            res = cur;
+            cur = cur->left;
+        } 
+        else {
+            cur = cur->right;
+        }
+    }
+
+    if (res == nullptr) {
         found = false;
     } 
     else {
         found = true;
     }
 
-    return result;
-}
-template <class K, class T>
-typename RedBlackTree<K, T>::RBTNode* RedBlackTree<K, T>::upperBound(const K& key, bool& found) const {
-    
-    RBTNode* result = this->upperBoundNode(key);
-
-    if (result == nullptr) {
-        found = false;
-    } else {
-        found = true;
-    }
-
-    return result;
+    return res;
 }
 
 // =====================================

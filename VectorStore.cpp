@@ -977,7 +977,8 @@ typename RedBlackTree<K, T>::RBTNode* RedBlackTree<K, T>::lowerBound(const K& ke
 
     if (res == nullptr) {
         found = false;
-    } else {
+    } 
+    else {
         found = true;
     }
 
